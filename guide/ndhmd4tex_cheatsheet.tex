@@ -1,0 +1,309 @@
+% ndhmd4tex 0.19.2 Cheat Sheet
+% xelatex cheatsheet.tex
+%! KSRC --xelatex
+\documentclass[a4paper,landscape]{article}
+
+\usepackage[a4paper,landscape,margin=6mm,top=4mm,bottom=7mm,footskip=4mm]{geometry}
+\usepackage{fontspec}
+\usepackage{multicol}
+\usepackage{xcolor}
+\usepackage{tabularray}
+\usepackage{titlesec}
+\usepackage{enumitem}
+\usepackage{fancyhdr}
+
+\setmainfont{Noto Serif CJK KR}[Scale=0.9]
+\setsansfont{Noto Sans CJK KR}[Scale=.9]
+\setmonofont{Noto Sans Mono CJK KR}[Scale=0.84]
+
+% ── 9포인트 ─────────────────────────────────────────────────────
+\makeatletter
+\renewcommand\normalsize{%
+  \@setfontsize\normalsize{8.3}{9.5}%
+  \abovedisplayskip 6\p@ \@plus2\p@ \@minus4\p@
+  \belowdisplayskip \abovedisplayskip
+  \abovedisplayshortskip \z@ \@plus2\p@
+  \belowdisplayshortskip 3\p@ \@plus2\p@ \@minus2\p@}
+\renewcommand\small{\@setfontsize\small{7.3}{8.8}}
+\renewcommand\footnotesize{\@setfontsize\footnotesize{6.5}{7.6}}
+\makeatother
+\normalsize
+
+\definecolor{acc}{HTML}{1F4E79}
+\definecolor{sub}{HTML}{7A7A7A}
+\definecolor{lite}{HTML}{EEF2F6}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.4pt}
+\setlength{\columnsep}{3.4mm}
+\setlength{\columnseprule}{0.3pt}
+\renewcommand{\columnseprulecolor}{\color{sub!40}}
+
+\titleformat{\section}{\sffamily\bfseries\small\color{acc}}{}{0pt}{}
+\titlespacing*{\section}{0pt}{2.5pt}{0.5pt}
+
+\setlist[itemize]{leftmargin=1em,itemsep=0pt,topsep=1pt,parsep=0pt}
+
+\pagestyle{fancy}
+\fancyhf{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0.3pt}
+\fancyfoot[L]{\footnotesize\color{sub}ndhmd4tex 0.19.2 Cheat Sheet}
+\fancyfoot[C]{\footnotesize\color{sub}자세한 내용은 \texttt{ndhmd4tex\_dialect\_guide.md}}
+\fancyfoot[R]{\footnotesize\color{sub}ktug.org}
+
+% 두 칸 / 세 칸 표
+\NewTblrEnviron{mk}
+\SetTblrInner[mk]{
+  width=\linewidth,
+  colspec={X[1.05,l]X[1,l]},
+  rowsep=0.15pt, colsep=1.4pt,
+  row{1}={font=\sffamily\bfseries\footnotesize,fg=acc},
+  row{odd}={bg=lite},
+  hlines={0.2pt,sub!25},
+%  font=\footnotesize, 
+  rows={halign=l},
+}
+\NewTblrEnviron{mkc}
+\SetTblrInner[mkc]{
+  width=\linewidth,
+  colspec={X[1,l]X[1,l]X[1.1,l]},
+  rowsep=0.15pt, colsep=1.4pt,
+  row{1}={font=\sffamily\bfseries\footnotesize,fg=acc},
+  row{odd}={bg=lite},
+  hlines={0.2pt,sub!25},
+%  font=\footnotesize, 
+  rows={halign=l},
+}
+
+\newcommand{\C}[1]{\texttt{#1}}
+\newcommand{\note}[1]{{\footnotesize\color{sub}\vspace{0.2pt}#1\par\vspace{0.2pt}}}
+
+\begin{document}
+
+{\sffamily\bfseries\large\color{acc} ndhmd4tex}\quad
+{\sffamily\small 마크다운 방언 치트시트 \textcolor{sub}{— 0.19.2}}\hfill
+{\footnotesize\color{sub}오류를 내지 않고 조용히 달라지는 항목은 \textcolor{acc}{\textbf{굵게}} 표시}
+
+\vspace{1.5pt}\hrule height 0.6pt
+\vspace{2pt}
+
+\begin{multicols}{4}
+\raggedright
+
+\section{실행}
+\begin{mk}{}
+명령 & 하는 일 \\
+\C{ndhmd4tex 글.md} & \C{글.tex} 생성 \\
+\C{-o 다른.tex} & 출력 경로 \\
+\C{--pdfxe} & xelatex로 컴파일+뷰어 \\
+\C{--nopreview} & 컴파일만, 뷰어는 안 엶 \\
+\C{--brief} & 컴파일 로그 숨김 \\
+\C{--pdf} \C{--pdflua} & pdflatex / lualatex \\
+\C{--lint} & 마크업 실수만 점검 \\
+\C{--dump-meta} & 병합된 헤더 확인 \\
+\C{--dump-mapping} & 병합된 최종 매핑 확인 \\
+\C{--config m.yaml} & 매핑 재정의 \\
+\C{--setup 바탕.md} & 헤더를 물려받음 \\
+\C{--default[=파일]} & 기본 헤더 바꿈/끔(\C{NONE}) \\
+\C{--init-setup} & 기본 헤더 꺼내기 \\
+\C{--encoding cp949} & 입력 인코딩 지정 \\
+\C{--pandoc[=...]} & 본문만 pandoc에 \\
+\C{--fetch-images} & url 이미지 다운로드 \\
+\C{--animation[=N]} & 애니 GIF를 프레임으로 \\
+\C{--search-resource[=파일]} & 리소스 위치 찾기(하위 폴더도) \\
+\C{--guide[=파일]} & 가이드 문서 곧장 열기 \\
+\C{--syncinfo} & .nmdsync 쓰기+synctex \\
+\C{--latexmk[=...]} & latexmk로 컴파일(엔진은 옵션값) \\
+\C{--version} \C{-v} & 버전 확인 \\
+\end{mk}
+\note{\C{[=값]}은 \C{=}로 붙여 쓸 것(띄우면 다음 옵션으로 오인). \C{--default}는 \C{setup:}보다 약하다. 도구 메시지에는 \C{[ndhmd]}가 붙는다(\C{grep}용).}
+
+\section{Front matter}
+\begin{mk}{}
+키 & 뜻 \\
+\C{class} & 문서 클래스 (기본 \C{book}) \\
+\C{classoptions} & 클래스 옵션 \\
+\C{toplevel} & \C{\#}이 될 구역 명령 \\
+\C{title} \C{author} \C{date} & 제목/저자/날짜 \\
+\C{preamble} & 프리앰블 (교체) \\
+\C{preamble+} & 프리앰블 (덧붙임) \\
+\C{graphicspath} & 그림 폴더 \C{["./","fig/"]} \\
+\C{beforestart} & \C{\textbackslash documentclass} 앞 \\
+\C{setup} & 다른 파일 헤더 상속 \\
+\C{mapping} & 매핑 yaml 경로 \\
+\C{mappingrule} & 매핑 조각 (원고 안에) \\
+\C{compileoption} & 컴파일 추가 인자 \\
+\C{pandocoption} & pandoc 추가 인자 \\
+\C{maketitle: true} & \C{\textbackslash maketitle} 삽입 \\
+\C{tocloft: \{toc,lof,lot\}} & 목차류 삽입 \\
+\C{latexmkoption} & latexmk 추가 인자 \\
+\end{mk}
+\note{더하려면 \C{키+:}. 우선순위: \C{--config} > \C{mappingrule} > \C{mapping}. \C{[a,b]}로 여러 파일도 가능(뒤가 이김, \C{extra\_inline}만 이어붙음).}
+
+\section{파일 나누기}
+\begin{mk}{}
+마크업 & 하는 일 \\
+\C{\{\{ch1.md\}\}} & 그 파일의 \emph{본문}을 삽입 \\
+\C{\{\{tex:file.tex\}\}} & 날 LaTeX을 그대로 삽입 \\
+\C{\{\{sub??.md;??=01-20\}\}} & 배치(일련번호) 삽입 \\
+\C{setup: base.md} & 그 파일의 \emph{헤더}를 상속 \\
+\end{mk}
+\note{앞 둘 중 \C{\{\{\}\}}는 \textbf{재귀로 파고든다}(경로는 늘 최상위 파일 기준, 순환은 오류, 깊이는 2--3단계까지만 권장). 확장자를 반드시 적을 것. \C{tex:}는 front matter도 안 떼고 마크다운도 안 거친다. 배치는 물음표 개수=자릿수, 숫자 전용, 콤마로 불연속 범위도 됨.}
+
+
+\section{인라인 서식}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{**굵게**} & \C{\textbackslash textbf\{\}} \\
+\C{*기울임*} & \C{\textbackslash emph\{\}} \\
+\C{***굵은기울임***} & \C{\textbackslash textbf\{\textbackslash emph\{\}\}} \\
+\C{\textasciitilde\textasciitilde 취소\textasciitilde\textasciitilde} & \C{\textbackslash sout\{\}} \\
+\C{\^{}\^{}방점\^{}\^{}} & \C{\textbackslash dotemph\{\}} \\
+\C{`코드`} & \C{\textbackslash texttt\{\}} \\
+\C{...} & \C{\textbackslash ldots\{\}} \\
+\C{---} (문장 중) & \C{\textbackslash textemdash\{\}} \\
+\end{mk}
+\note{규칙 추가는 \C{extra\_inline:} — 기본 목록 \emph{앞}에 붙고, 캡처 그룹 수만큼 \C{\%s}를 쓴다.}
+
+\section{블록}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{\# 제목} & \C{\textbackslash chapter} (\C{toplevel}) \\
+\C{\#\# 제목 \{unnumbered\}} & 번호 없는 헤딩 \\
+\C{\#\# 제목 \{label=sec:a\}} & \C{\textbackslash label} 삽입 \\
+\C{\# 긴제목 \{toc="짧은"\}} & \C{\textbackslash section[짧은]\{긴제목\}} \\
+\C{- 항목} \C{1. 항목} & \C{itemize} / \C{enumerate} \\
+\C{1. \{!옵션,raw\} 항목} & \C{enumerate[옵션] raw} \\
+\C{\{용어\} ::\ \ 설명} & \C{description} \\
+\C{> 인용} & \C{quote} \\
+\C{> A} \C{>} \C{> B} & \C{quotation} (두 문단 이상) \\
+\C{---} (한 줄) & 가로줄 (\C{hr}) \\
+\C{***} (한 줄) & \C{\textbackslash bigskip} (\C{asterism}) \\
+\C{| a | b |} & \C{tblr} (둘째 줄 \C{|---|---|}) \\
+\C{\{env=long, caption=\}} & 표 바로 뒤 줄 $\to$ \C{longtblr} \\
+\end{mk}
+\note{\textbf{리스트 항목 안에 빈 줄을 두면 리스트가 끊긴다.} 항목 본문은 언제나 한 덩어리. \textbf{리스트 옵션은 \C{\{!…\}}일 때만}(첫 항목, \C{!} 없는 \C{\{…\}}는 본문). 긴 셀이 든 표는 \C{tablewrap}(mapping, 기본 70)이 넘칠 열만 \C{X}열로 바꾼다. \C{hr}·\C{asterism}·\C{mdash}는 \C{mapping.yaml}로 바꾼다(둘 다 preamble 정의 불필요, 기본값 그대로 컴파일됨).}
+
+\section{커스텀 환경}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{:::\{이름\}} … \C{:::} & \C{\textbackslash begin\{이름\}} \\
+\C{:::\{table caption=, label=\}} & 떠다니는 표 \\
+\C{:::\{figure ...\}} & 캡션이 아래 \\
+\C{:::\{thebibliography widest=\}} & 문헌 목록 \\
+\C{:::\{hverse\}} \C{:::\{verse\}} & 운문 (행 유지) \\
+\C{:::\{quote\}} \C{:::\{center\}} & \\
+\C{raw=\{1cm\}\{1cm\}} & 이름 없는 인자 \\
+\end{mk}
+\note{\textbf{\C{:::}와 \C{\{} 사이에 공백을 두면 인식되지 않는다.} 속성은 쉼표로 구분하고 값은 raw로 꽂힌다. 따옴표 값 안의 따옴표는 \C{""}로 겹쳐 쓴다.}
+
+
+\section{상호참조 · 인용}
+\begin{mkc}{}
+마크업 & 결과 & 필요 \\
+\C{[\#라벨]} & \C{\textbackslash ref} & \\
+\C{[page:라벨]} & \C{\textbackslash pageref} & \\
+\C{[E:라벨]} & \C{\textbackslash eqref} & amsmath \\
+\C{[F:라벨]} & {\small\C{\textbackslash figurename\textasciitilde\textbackslash ref}} & \\
+\C{[T:라벨]} & {\small\C{\textbackslash tablename\textasciitilde\textbackslash ref}} & \\
+\C{[C:라벨]} & \C{\textbackslash Cref} & cleveref \\
+\C{[name:라벨]} & \C{\textbackslash nameref} & hyperref \\
+\C{[title:라벨]} & \C{\textbackslash titleref} & 직접 정의 \\
+\C{[@키]} & \C{\textbackslash cite} & \\
+\C{[@t:키]} & \C{\textbackslash citet} & natbib \\
+\C{[@p:키]} & \C{\textbackslash citep} & natbib \\
+\C{[@a:키]} & \C{\textbackslash citeauthor} & natbib \\
+\C{[@y:키]} & \C{\textbackslash citeyear} & natbib \\
+\end{mkc}
+\note{선택 인자는 \C{[@키]\{rawopt="[p.\textasciitilde33]"\}} $\to$ \C{\textbackslash cite[p.\textasciitilde33]\{키\}} (\C{[}로 시작하지 않으면 자동으로 \C{[ ]}로 감쌈).}
+
+
+\section{링크 · 각주 · 태그 참조}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{[표시](url)} & \C{\textbackslash href} \\
+\C{[](url)} & \C{\textbackslash url} \\
+\C{[표시](\#label)} & \C{\textbackslash hyperref} \\
+\C{[표시][라벨]} \C{[][라벨]} & 링크 (정의 참조) \\
+\C{![캡션][라벨]} & 그림 (정의 참조) \\
+\C{[라벨]: 값} & 정의 한 줄 (URL/그림) \\
+\C{본문[\^{}id]} & 정의를 참조 \\
+\C{[\^{}id]: 내용} & 각주 정의 \\
+\C{본문[\^{}각주 본문]} & 인라인 각주 \\
+\C{본문\^{}[각주 본문]} & 인라인 각주 (Pandoc) \\
+\end{mk}
+\note{\textbf{정의 식별자는 라틴 알파벳·숫자·\C{\_}·\C{-}·한글만.} 공백은 안 됨. 어기면 정의가 누락되고 참조는 그 문자열이 각주가 된다.}
+
+\section{그림 · 색인}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{![캡션](x.png)} & \C{figure} + \C{\textbackslash caption} \\
+\C{![""](x.png)} & \C{figure}, 캡션 없음 \\
+\C{![](x.png)} & \C{\textbackslash includegraphics}만 (안 띄움) \\
+\C{\{caption="..."\}} & 안 띄우고 \C{\textbackslash captionof} \\
+\C{\{inline, inlinespec=\}} & \C{\textbackslash inlinegraphics} \\
+\C{\{width=.5\textbackslash linewidth\}} & \C{\textbackslash includegraphics} 옵션 \\
+\C{\{label=, place=, align=\}} & 특별 취급 \\
+\C{\{wrap, wrapspec="..."\}} & 본문이 그림을 둘러쌈 \\
+\C{\{href="url"\}} & 그림에 href \\
+\C{[[용어]]} & \C{용어\textbackslash index\{용어\}} \\
+\C{[[표시|색인어]]} & \C{표시\textbackslash index\{색인어\}} \\
+\C{[[|색인어]]} & \C{\textbackslash index}만 \\
+\end{mk}
+\note{\textbf{띄울지는 대괄호 안으로만 정한다} — 비어 있으면 \C{\{\}} 에 무엇을 적든 안 띄운다. 특별 취급은 \C{label}·\C{place}·\C{align}·\C{caption}·\C{href}·\C{wrap}·\C{inline} 뿐, 나머지는 \C{\textbackslash includegraphics}로 간다. 색인어는 raw.}
+
+\section{Beamer 프레임}
+\begin{mk}{}
+마크업 & 결과 \\
+\C{={4,}\{키=값,...\}} & \C{\textbackslash begin\{frame\}[opt]raw} \\
+\C{={4,}} (맨몸) & \C{\textbackslash end\{frame\}} \\
+\end{mk}
+\note{\textbf{여는 쪽만 중괄호}(\C{:::}와 같은 관례). 키: \C{title}·\C{subtitle}·\C{opt}·\C{raw}·\C{name}(\C{frame*} 등 다른 환경) — 각각 \C{\textbackslash frametitle}/\C{\textbackslash framesubtitle}, 대괄호 안, \C{[opt]} 뒤에 그대로. 안은 평범한 본문 — 설명 리스트에 \C{\{!"<+-\textbar\ alert@+>"\}} 쓰면 오버레이 지정.}
+
+\section{raw LaTeX}
+\begin{mk}{}
+마크업 & 뜻 \\
+\C{\$x\^{}2\$} & 인라인 수식 \\
+\C{\textbackslash textbf\{x\}} & 매크로는 그대로 통과 \\
+\C{`\{\textbackslash bfseries x\}`\{=latex\}} & 인라인 raw 스팬 \\
+\C{```raw} & 블록 raw \\
+\C{\textbackslash 은/는/이/가/을/를 \textbackslash 와/과/으로/로} & 조사 매크로 \\
+\C{\textbackslash 이라\{\}고} & 이름 종결자 \C{\{\}} \\
+\C{\^{}\^{}M} & 소스의 강제 개행 \\
+\end{mk}
+\note{\C{\textbackslash 이라}는 기본 목록에 없고 \textbf{\C{\textbackslash 이}에게 먹힌다.} 필요하면 \C{\{\}}를 붙일 것.}
+
+\section{물결표와 이스케이프}
+\begin{mk}{}
+입력 & 출력 \\
+\C{그림\textasciitilde1} & \C{그림\textasciitilde1} (묶음빈칸) \\
+\C{1\textbackslash\textasciitilde6} & 기본은 LaTeX 해석 / \C{wavedash} \\
+\C{\textbackslash \& \textbackslash \% \textbackslash \# \textbackslash \_} & 그대로 통과 \\
+\C{\& \% \# \_ \$ \{ \} \^{} \textbackslash} & 자동 이스케이프 \\
+\end{mk}
+\note{\textbf{\C{\textasciitilde}는 자동 이스케이프 대상이 아니다.} 기본(\C{wavedash: default})에선 \C{\textasciitilde}도 \C{\textbackslash\textasciitilde}도 그대로 LaTeX에 넘어간다. mapping에 \C{wavedash: FF5E}(코드포인트) 또는 \C{\textbackslash 매크로}를 주면 \C{\textasciitilde}는 묶음빈칸 그대로, \C{\textbackslash\textasciitilde}만 그 값이 된다. 코드 스팬 안은 예외.\\
+\C{tilde:}는 \C{\textasciitilde}·\C{\^{}}의 해석 방언. \C{latex}가 기본(묶음빈칸)이고, \C{pandoc} 또는 \C{multimarkdown}을 주면 해당 방언(첨자 등)을 흉내낸다. \C{\textbackslash\textasciitilde}는 어느 모드에서나 wavedash.}
+
+\section{자주 밟는 함정}
+\begin{itemize}
+\item 리스트 항목 안 빈 줄 → 리스트 끊기고 평문으로
+\item 헤딩 아래 빈 줄 없이 본문 → 헤딩 인식 안 됨
+\item \C{::: \{이름\}} / \C{==== \{title=...\}} 공백 → 인식 안 됨
+\item 산문 속 \C{ :: } → 설명 리스트로 오인
+\item \C{preamble:} 덮어씀 → \C{preamble+:} 쓸 것
+\item 캡션 없이 \C{label=}만 → \C{\textbackslash ref} 엉뚱한 값(\C{caption=} 함께)
+\item 그림 경로는 언제나 \C{/} (윈도우도)
+\end{itemize}
+\note{전부 \textbf{\C{--lint}가 잡는다}.}
+
+\section{막힐 때}
+\begin{itemize}
+\item 결과가 이상한데 오류는 없다 → \C{--lint}
+\item 설정 확인/헤더가 안 먹는다 → \C{--dump-meta} (찾아본 경로도 보여줌)
+\item 한글이 깨진다 → \C{--encoding cp949}
+\item front matter 무시됨 → 들여쓰기 탭(\C{--lint})
+\end{itemize}
+
+\end{multicols}
+\end{document}
