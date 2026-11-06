@@ -1,0 +1,15 @@
+---
+class: oblivoir 
+classoption: chapter
+toplevel: chapter 
+preamble: |
+  \usepackage{xcolor}
+  \usepackage{graphicx}
+  \usepackage[export]{adjustbox}
+  \usepackage{relsize}
+  \ifluatex\else\usepackage[normalem]{ulem}\fi
+  \usepackage{tabularray}
+  \UseTblrLibrary{booktabs}
+  \usepackage{minted}
+  \usepackage{boxedminipage}
+---

@@ -1,0 +1,39 @@
+---
+class: oblivoir 
+classoption: a4paper,colorlinks
+mapping: lshort-ko_example.yaml
+toplevel: section
+preamble: |
+  \usepackage{fapapersize}
+  \usefapapersize{*,*,.75in,*,.75in,*}
+  \usepackage{amsmath,amsthm}
+  \usepackage{amssymb}
+  \usepackage{xcolor}
+  \usepackage{graphicx}
+  \usepackage[export]{adjustbox}
+  \usepackage{relsize}
+  \ifluatex\else\usepackage[normalem]{ulem}\fi
+  \usepackage{tabularray}
+  \UseTblrLibrary{booktabs}
+  \usepackage{minted}
+  \usepackage{boxedminipage}
+  \usepackage{ninecolors}
+  \usepackage{oblivoir-misc}
+  \usepackage[private]{srcandtext}
+  \usepackage{kswdash,ksvqt}
+  \usepackage{kotex-logo}
+  \newtheorem{theorem}{정리}[section]
+  \makeindex
+  \AtBeginEnvironment{theindex}{\label{sec:index}}{}{}
+  \ifLuaOrXeTeX
+    \setmainfont{TeX Gyre Pagella}
+    \setsansfont{TeX Gyre Heros}
+    \setkomainfont(Noto Serif CJK KR)(Noto Serif CJK KR Bold)(Noto Sans CJK KR Light)
+    \setkosansfont(Noto Sans CJK KR)
+    \setkomonofont(D2Coding)[Scale=.95]
+  \else\ifpdftex
+    \usepackage{mathpazo}
+  \fi\fi
+  \parindent=0pt
+  \maxsecnumdepth{section}
+  \let\expldash\textemdash

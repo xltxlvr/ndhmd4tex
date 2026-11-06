@@ -1,0 +1,28 @@
+# amsthm environment
+environments:
+  theorem:
+    begin: |-
+      \begin{theorem}
+      ?[%(title)s]
+      ?\label{%(label)s}
+      ?%(raw)s
+    end: \end{theorem}
+  corollary:
+    begin: |-
+      \begin{corollary} 
+      ?[%(title)s]
+      ?\label{%(label)s}
+      ?%(raw)s
+    end: \end{corollary}
+  lemma:
+    begin: |-
+      \begin{lemma} 
+      ?[%(title)s]
+      ?\label{%(label)s}
+      ?%(raw)s
+    end: \end{lemma}
+  proof:
+    begin: |-
+      \begin{proof} 
+      ?[%(title)s]
+    end: \end{proof}

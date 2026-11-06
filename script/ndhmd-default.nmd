@@ -1,0 +1,42 @@
+---
+# ndhmd4tex.py 기본 헤더 (ndhmd-default.nmd)
+#
+# front matter를 적지 않은 원고에 자동으로 씌워지는 바탕 헤더다.
+# 스크립트는 이 파일을 다음 순서로 찾는다.
+#   1) 현재 작업 폴더
+#   2) ndhmd4tex.py 가 놓인 폴더
+# 둘 다 없으면 아무 헤더도 씌우지 않고 예전처럼 book 클래스로 떨어진다.
+#
+# 문서 자신의 front matter가 여기 적힌 값을 덮어쓴다. 즉 이 파일은 "기본값"
+# 이지 "강제"가 아니다. 특정 원고에서만 다른 바탕을 쓰고 싶으면 그 원고에
+# setup: 을 적거나, 실행할 때 --setup=다른파일.md 로 지정하면 된다.
+#
+# title 은 setup 으로 상속되지 않으므로 여기 적어도 소용없다. 반대로
+# author 와 date 는 상속되니, 원고마다 저자가 다르다면 적지 않는 편이 낫다.
+#
+# 아래 프리앰블은 oblivoir(memoir 기반) + kotex 을 상정한다. class 를 바꾸면
+# classoptions 와 toplevel 도 함께 손봐야 하고, memoir 계열이 제공하던 명령
+# (\titleref, \printindex, \maxsecnumdepth)이 사라지므로 주석 처리해둔 줄들을
+# 되살려야 한다.
+
+class: oblivoir
+toplevel: section
+
+preamble: |
+  \ifx\ifluatex\ifxetex\else
+    \setkomainfont(Noto Serif CJK KR)(Noto Serif CJK KR Bold)(Noto Sans CJK KR Light)
+    \setkosansfont(Noto Sans CJK KR)
+    \setkomonofont(D2Coding)[Scale=.96]
+  \fi
+  \usepackage{tabularray}
+  \UseTblrLibrary{booktabs}
+  \usepackage{graphicx}
+  \usepackage[export]{adjustbox}
+  \makeindex
+  \ifx\ifpdftex\ifxetex\else\usepackage[normalem]{ulem}\fi
+  \usepackage{minted}
+  \maxsecnumdepth{chapter}
+---
+
+이 아래 본문은 쓰이지 않는다. 스크립트는 이 파일에서 front matter만 읽는다.
+설명이나 메모를 적어 두어도 무방하다.

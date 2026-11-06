@@ -1,0 +1,6 @@
+{
+  "label": "ndhmd4tex: forward search",
+  "type": "shell",
+  "command": "ndhmdsync",
+  "args": ["${file}", "--md-line", "${lineNumber}"]
+}

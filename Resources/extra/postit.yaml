@@ -1,0 +1,38 @@
+# postit 패키지 활용
+# :::{postit opt="",raw=""} => \begin{PostItNote}[opt]raw
+# :::{tikzpicture opt=""} => \begin{tikzpicture}[opt]
+environments:
+  postit:
+    begin: |-
+      \begin{PostItNote}
+      ?[%(opt)s]
+      ?%(raw)s
+    end: '\end{PostItNote}'
+  tikzpicture:
+    lines: raw
+    begin: |-
+      \begin{tikzpicture}
+      ?[%(opt)s]
+    end: '\end{tikzpicture}'
+
+# ***text*** => \textsf{text}
+# **text** => \textbf{text}
+# *text* => \emph{text}
+# {|color|text|} => \MiniPostIt[color]{text}
+# {||color|text||} => \MiniPostIt*[color]{text}
+extra_inline:
+  - name: sanserifpriority
+    pattern: '\*\*\*(.+?)\*\*\*'
+    template: '\textsf{%s}'
+  - name: boldpriority
+    pattern: '\*\*(.+?)\*\*'
+    template: '\textbf{%s}'
+  - name: emphpriority
+    pattern: '\*(.+?)\*'
+    template: '\emph{%s}'
+  - name: minipostitshade
+    pattern: '\{\|\|(.+?)\|\|(.+?)\}'
+    template: '\MiniPostIt*[%s]{%s}'
+  - name: minipostit
+    pattern: '\{\|(.+?)\|(.+?)\}'
+    template: '\MiniPostIt[%s]{%s}'

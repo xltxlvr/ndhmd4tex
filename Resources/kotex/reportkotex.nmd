@@ -1,0 +1,22 @@
+class: report
+classoptions: a4paper
+toplevel: chapter 
+preamble: |
+  \usepackage{amsmath,amsthm}
+  \ifx\NMkotexhangul\undefined
+    \usepackage{kotex}\else
+    \usepackage[hangul]{kotex}\fi
+  \usepackage{kotex}
+  \usepackage{iftex}
+  \usepackage{etoolbox}
+  \ifpdftex \usepackage{amssymb}\fi
+  \usepackage{xcolor}
+  \usepackage{graphicx}
+  \usepackage[export]{adjustbox}
+  \usepackage{relsize}
+  \usepackage{tabularray}
+  \UseTblrLibrary{booktabs}
+  \usepackage{minted}
+  \usepackage{tcolorbox}
+  \usepackage{multirow}
+  \usepackage{csquotes}

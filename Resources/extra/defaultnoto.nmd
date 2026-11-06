@@ -1,0 +1,10 @@
+---
+preamble+: |
+    \RequirePackage{iftex}
+    \iftutex
+        \setkomainfont(Noto Serif CJK KR)(Noto Serif CJK KR Bold)(Noto Sans CJK KR Medium)
+        \setkosansfont(Noto Sans CJK KR)(Noto Sans CJK KR Bold)(Noto Serif CJK KR Light)
+        \setkomonofont(D2Coding)[Scale=.91]
+        \ifluatex\compressbnms\fi
+    \fi 
+---

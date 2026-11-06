@@ -1,0 +1,50 @@
+# sans serif, underline (ulem)
+extra_inline:
+  - name: sanserif
+    pattern: '\*\*\*(.+?)\*\*\*'
+    template: '\textsf{%s}'
+  - name: underline
+    pattern: '\_\_(.+?)\_\_'
+    template: '\uline{%s}'
+
+# \. and \~ (kswdash)
+extra_macros:
+  - "\\."
+  - "\\~"
+
+# codeblock, verbatim, and showexam
+codeblock_template: "\\begin{exampleside}\n%(body)s\n\\end{exampleside}"
+verbatim_env: exampleonly
+showexam:
+  ratio: 0.5
+  frame: none
+  template: |-
+    \begin{tcolorbox}[listing engine=minted,
+                      sidebyside,sidebyside align=top, 
+                      colback=yellow6!5, colframe=gray,
+                      bicolor,colbacklower=white,
+                      before upper*=\setstretch{1.05},
+                      before lower*=\setstretch{1},
+                      minted language=markdown,
+                      lefthand ratio=%(ratio)s]
+    %(left)s
+    \tcblower
+    %(right)s
+    \end{tcolorbox}
+
+# theorem environment
+environments:
+  theorem:
+    begin: |-
+      \begin{theorem}%(title|)s
+      ?\label{%(label)s}
+    end: '\end{theorem}'
+
+# punctuations
+ellipsis: '\obellipsis{}'
+mdash: '\expldash{}'
+asterism: '\bigskip'
+hr: '\fancybreak{* * *}'
+
+# line comment
+linecomment: true

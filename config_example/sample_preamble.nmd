@@ -1,0 +1,22 @@
+class: oblivoir 
+preamble: |
+  \ifLuaOrXeTeX
+    \setmainfont{TeX Gyre Pagella}
+    \setsansfont{TeX Gyre Heros}
+    \setkomainfont(Noto Serif CJK KR)(Noto Serif CJK KR Bold)(Noto Sans CJK KR Light)
+    \setkosansfont(Noto Sans CJK KR)
+    \setkomonofont(D2Coding)[Scale=.95]
+  \else\ifpdftex
+    \usepackage{mathpazo}
+  \fi\fi
+  \usepackage{amsmath,amssymb,amsthm}
+  \usepackage{xcolor}
+  \usepackage{graphicx}
+  \usepackage[export]{adjustbox}
+  \usepackage{relsize}
+  \usepackage{wrapstuff}
+  \ifluatex\else\usepackage[normalem]{ulem}\fi
+  \usepackage{tabularray}
+  \UseTblrLibrary{booktabs}
+  \usepackage{minted}
+  \usepackage{boxedminipage}

@@ -1,0 +1,13 @@
+---
+class: beamer
+classoption: ""
+toplevel: section
+preamble: |
+    \ifx\NMinstitute\undefined\else
+        \institute{\NMinstitute}
+    \fi
+    \ifx\NMtheme\undefined\else
+        \usetheme{\NMtheme}
+    \fi
+    \usepackage{kotex}
+---
