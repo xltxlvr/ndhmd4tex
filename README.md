@@ -30,9 +30,9 @@ Read [INSTALLATION.md](https://github.com/xltxlvr/ndhmd4tex/blob/main/INSTALLATI
 - To produce a PDF: TeX Live or MiKTeX. The default header needs oblivoir and kotex;
   for Korean, xelatex or lualatex (`--pdfxe`, `--pdflua`) is recommended.
   The compile wrapper `ksruncltex` is available from its
-  [home page](https://nonametex.imweb.me/?bmode=view&idx=170827898&t=board);
+  [home page](https://github.com/xltxlvr/ksruncltex);
   to compile with standard tools instead, use `--latexmk`.
-- Optional: `pandoc` (`--pandoc`), `multimarkdown` (`--mmd`), and `-shell-escape` if you use `minted`
+- Optional: `pandoc` (`--pandoc`), `multimarkdown` (`--mmd`).
 
 ## Quick start
 
