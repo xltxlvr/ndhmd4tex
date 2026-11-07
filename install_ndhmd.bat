@@ -106,6 +106,8 @@ echo.
 echo This will remove:
 if defined BIN_DIR (
     if exist "!BIN_DIR!\ndhmd4tex.exe" echo   - !BIN_DIR!\ndhmd4tex.exe
+    if exist "!BIN_DIR!\ndhmd4tex.py" echo   - !BIN_DIR!\ndhmd4tex.py
+    if exist "!BIN_DIR!\ndhmd4tex.cmd" echo   - !BIN_DIR!\ndhmd4tex.cmd
     if exist "!BIN_DIR!\ndhmdsync.exe" echo   - !BIN_DIR!\ndhmdsync.exe
     if exist "!BIN_DIR!\ndhmdsync.py" echo   - !BIN_DIR!\ndhmdsync.py
     if exist "!BIN_DIR!\ndhmdsync.cmd" echo   - !BIN_DIR!\ndhmdsync.cmd
@@ -127,6 +129,8 @@ if /i not "!ANSWER!"=="y" (
 :confirmed
 if defined BIN_DIR (
     if exist "!BIN_DIR!\ndhmd4tex.exe" (del /f /q "!BIN_DIR!\ndhmd4tex.exe" && echo Removed !BIN_DIR!\ndhmd4tex.exe)
+    if exist "!BIN_DIR!\ndhmd4tex.py" (del /f /q "!BIN_DIR!\ndhmd4tex.py" && echo Removed !BIN_DIR!\ndhmd4tex.py)
+    if exist "!BIN_DIR!\ndhmd4tex.cmd" (del /f /q "!BIN_DIR!\ndhmd4tex.cmd" && echo Removed !BIN_DIR!\ndhmd4tex.cmd)
     if exist "!BIN_DIR!\ndhmdsync.exe" (del /f /q "!BIN_DIR!\ndhmdsync.exe" && echo Removed !BIN_DIR!\ndhmdsync.exe)
     if exist "!BIN_DIR!\ndhmdsync.py" (del /f /q "!BIN_DIR!\ndhmdsync.py" && echo Removed !BIN_DIR!\ndhmdsync.py)
     if exist "!BIN_DIR!\ndhmdsync.cmd" (del /f /q "!BIN_DIR!\ndhmdsync.cmd" && echo Removed !BIN_DIR!\ndhmdsync.cmd)
@@ -205,12 +209,37 @@ exit /b 1
 :write_ok
 del "!BIN_DIR!\.test_write" >nul 2>&1
 
-:: 파일 복사
-copy /Y "script\ndhmd4tex.exe" "!BIN_DIR!\" >nul
-if errorlevel 1 goto :copy_err
+:: --- ndhmd4tex 복사 및 .cmd 생성 분기 처리 시작 ---
+:: .exe는 script\ 가 아니라 pyinstaller\ 아래에서 찾는다
+if exist "pyinstaller\ndhmd4tex.exe" (
+    copy /Y "pyinstaller\ndhmd4tex.exe" "!BIN_DIR!\" >nul
+    if errorlevel 1 goto :copy_err
+) else if exist "script\ndhmd4tex.py" (
+    copy /Y "script\ndhmd4tex.py" "!BIN_DIR!\" >nul
+    if errorlevel 1 goto :copy_err
+    echo [Info] ndhmd4tex.exe not found. Copied ndhmd4tex.py instead.
+
+    :: ndhmd4tex.cmd 생성 (괄호 중첩 버그를 피하기 위해 한 줄씩 출력)
+    echo @echo off> "!BIN_DIR!\ndhmd4tex.cmd"
+    echo python "%%~dp0ndhmd4tex.py" %%*>> "!BIN_DIR!\ndhmd4tex.cmd"
+
+    if errorlevel 1 (
+        echo [Error] Failed to create ndhmd4tex.cmd wrapper script.
+        goto :copy_err
+    )
+    echo [Info] Created ndhmd4tex.cmd wrapper in !BIN_DIR!
+) else (
+    echo [Error] Could not find ndhmd4tex.exe ^(pyinstaller\^) or ndhmd4tex.py ^(script\^).
+    goto :copy_err
+)
+:: --- ndhmd4tex 복사 및 .cmd 생성 분기 처리 끝 ---
 
 :: --- ndhmdsync 복사 및 .cmd 생성 분기 처리 시작 ---
-if exist "script\ndhmdsync.exe" (
+:: .exe는 pyinstaller\ 를 먼저 찾고, 없으면 script\ 도 확인한다
+if exist "pyinstaller\ndhmdsync.exe" (
+    copy /Y "pyinstaller\ndhmdsync.exe" "!BIN_DIR!\" >nul
+    if errorlevel 1 goto :copy_err
+) else if exist "script\ndhmdsync.exe" (
     copy /Y "script\ndhmdsync.exe" "!BIN_DIR!\" >nul
     if errorlevel 1 goto :copy_err
 ) else if exist "script\ndhmdsync.py" (
@@ -228,7 +257,7 @@ if exist "script\ndhmdsync.exe" (
     )
     echo [Info] Created ndhmdsync.cmd wrapper in !BIN_DIR!
 ) else (
-    echo [Error] Could not find ndhmdsync.exe or ndhmdsync.py in script directory.
+    echo [Error] Could not find ndhmdsync.exe or ndhmdsync.py in pyinstaller or script directory.
     goto :copy_err
 )
 :: --- ndhmdsync 복사 및 .cmd 생성 분기 처리 끝 ---

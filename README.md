@@ -7,6 +7,10 @@ You write in an extended Markdown called the "ndhmd dialect" (ndhmarkdown dialec
 The default header assumes oblivoir (memoir-based) + kotex, but `class:` and `preamble:`
 in the front matter let you change that freely.
 
+## Installation
+
+Read INSTALLATION.md.
+
 ## What's in the box
 
 | File | Role |

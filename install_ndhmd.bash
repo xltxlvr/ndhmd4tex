@@ -56,6 +56,27 @@ fi
 # --bin 으로 설치되는 파일 목록 (ndhmdsync 확장자는 자동 판별)
 BIN_FILES=("ndhmd4tex" "ndhmd-default.nmd")
 
+# sudo로 실행되었을 때, resources/guide/config 쪽에 생성된 파일/폴더의 소유권을
+# root가 아니라 실제 사용자(SUDO_USER)로 되돌린다. --bin 쪽 대상(/usr/local/bin,
+# TeX 디렉터리 등)은 시스템 디렉터리이므로 그대로 root 소유로 둔다.
+fix_ownership() {
+    local target="$1"
+    [ -n "$SUDO_USER" ] || return 0
+    [ -e "$target" ] || return 0
+
+    if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+        chown -R "$SUDO_UID:$SUDO_GID" "$target"
+    else
+        local grp
+        grp=$(id -gn "$SUDO_USER" 2>/dev/null)
+        if [ -n "$grp" ]; then
+            chown -R "$SUDO_USER:$grp" "$target"
+        else
+            chown -R "$SUDO_USER" "$target"
+        fi
+    fi
+}
+
 resolve_bin_dir() {
     if [ -n "$BIN_ARG" ]; then
         if [ "$BIN_ARG" = "TEX" ]; then
@@ -149,6 +170,9 @@ echo "Installing config examples to: $BASE_DIR/config"
 mkdir -p "$BASE_DIR/config"
 [ -f "config_example/ndhmdsync.ini.example" ] && cp "config_example/ndhmdsync.ini.example" "$BASE_DIR/config/"
 
+# sudo로 실행되었더라도 resources/guide/config 쪽은 root가 아니라 실제 사용자 소유로 둔다
+fix_ownership "$BASE_DIR"
+
 echo ""
 
 # 3. --bin 옵션 처리
@@ -180,6 +204,8 @@ if [ -n "$BIN_ARG" ]; then
     fi
 
     # 파일 복사, 이름 변경 및 실행 권한 부여
+    # (--bin 대상은 /usr/local/bin, TeX 디렉터리 등 시스템 디렉터리이므로
+    #  sudo로 실행된 경우에도 소유권은 그대로 root로 둔다)
     cp "script/ndhmd4tex.py" "$BIN_DIR/ndhmd4tex" || { echo "[Error] Failed to copy ndhmd4tex.py"; exit 1; }
     chmod +x "$BIN_DIR/ndhmd4tex"
 
