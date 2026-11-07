@@ -31,7 +31,7 @@ $ pip3 install pyyaml --break-system-packages
 이후 스크립트에 실행 권한을 주고 실행한다. (시스템 경로 복사 시 `sudo` 필요)
 ```bash
 $ chmod +x install_ndhmd.sh
-$ sudo ./install_ndhmd.sh --bin=TEX
+$ sudo ./install_ndhmd.bash --bin=TEX
 ```
 
 ## 언인스톨 
@@ -43,7 +43,7 @@ $ sudo ./install_ndhmd.sh --bin=TEX
 macOS/Linux에서는
 
 ```bash
-$ bash ./install_ndhmd.sh --uninstall
+$ bash ./install_ndhmd.bash --uninstall
 ```
 
 스크립트 해석기가 `bash`임에 주의할 것.
