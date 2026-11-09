@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.20.3"
+__version__ = "0.20.4"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -450,6 +450,10 @@ DEFAULT_CONFIG = {
     "wavedash": "default",
     # ~ 와 ^ 의 해석 방언: latex(기본, ~ 는 묶음빈칸) | pandoc | multimarkdown
     "tilde": "latex",
+    # 직선 따옴표를 무엇으로 바꿀까. tex(기본, ``..'' `..') / unicode(“..” ‘..’) /
+    # 임의 문자: 2글자(큰따옴표 여닫이만, 작은따옴표는 tex 그대로) 또는 4글자
+    # (큰따옴표 여닫이 + 작은따옴표 여닫이). 여러 글자짜리는 같은 길이의 리스트로.
+    "quotes": "tex",
     # [[표시|색인어]] 색인 문법이 만들어낼 LaTeX. %(text)s 에 표시 텍스트가,
     # %(term)s 에 색인어가 들어간다.
     #
@@ -3304,7 +3308,38 @@ def build_refcite_re(cfg, with_rawopt=False):
 ESCAPED_QUOTE_RE = re.compile(r"\\([\"'])")
 
 
-def convert_smart_quotes(text: str) -> str:
+_quotes_warned = set()
+
+
+def resolve_quotes(cfg):
+    """cfg["quotes"] 를 (큰여, 큰닫, 작은여, 작은닫) 으로 푼다.
+
+    tex 이거나 잘못된 값이면 None(= 예전 동작). 작은따옴표 쌍은 2글자만 준
+    경우 None 이고, 그때 작은따옴표는 tex 방식으로 둔다."""
+    val = cfg.get("quotes", "tex")
+    if isinstance(val, str):
+        name = val.strip().lower()
+        if name in ("", "tex", "latex"):
+            return None
+        if name == "unicode":
+            return ("\u201c", "\u201d", "\u2018", "\u2019")
+        items = list(val)            # 문자열은 글자 하나씩
+    elif isinstance(val, (list, tuple)):
+        items = [str(x) for x in val]
+    else:
+        items = None
+    if items is None or len(items) not in (2, 4) or not all(items):
+        if repr(val) not in _quotes_warned:
+            _quotes_warned.add(repr(val))
+            print(f"경고: quotes: {val!r} 을(를) 알 수 없습니다. tex / unicode / "
+                  f"2 또는 4개의 문자(열)여야 합니다. tex 로 둡니다.", file=sys.stderr)
+        return None
+    if len(items) == 2:
+        return (items[0], items[1], None, None)
+    return tuple(items)
+
+
+def convert_smart_quotes(text: str, quotes=None, protect=None) -> str:
     r"""LaTeX은 여는/닫는 따옴표에 서로 다른 문자를 쓴다.
 
     - 큰따옴표: 여는 것은 ``(백틱 두 개), 닫는 것은 ''(아포스트로피 두 개).
@@ -3334,6 +3369,20 @@ def convert_smart_quotes(text: str) -> str:
     문자가 공백이 아니기 때문), 여는 문맥 판정에 이 문자들도 포함시킨다.
     """
     _OPEN_CTX = r"[\s([{*~]"
+
+    if quotes is not None:
+        # tex 가 아닌 모드. 결과 문자는 protect() 로 보호해서 뒤 단계(굵게·기울임
+        # 규칙, 최종 escape_text)가 건드리지 못하게 한다. 여는/닫는 판정은 같다.
+        dop, dcl, sop, scl = quotes
+        text = re.sub(rf'(?:\A|(?<={_OPEN_CTX}))"', lambda m: protect(dop), text)
+        text = text.replace('"', protect(dcl))
+        if sop is None:
+            # 2글자만 받았다: 작은따옴표는 tex 방식 그대로.
+            text = re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", "`", text)
+        else:
+            text = re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", lambda m: protect(sop), text)
+            text = text.replace("'", protect(scl))
+        return text
 
     # 큰따옴표: 여는 위치만 먼저 치환한다. 남는 것은 전부 닫는 따옴표다.
     text = re.sub(rf'(?:\A|(?<={_OPEN_CTX}))"', "``", text)
@@ -4060,7 +4109,7 @@ def process_inline(text, cfg, pr: Protector):
     # 먼저 실행해야 한다. 그 규칙들은 자신이 매치한 구간을 통째로 protect()
     # 해버리므로, 나중에 실행하면 예컨대 **"인용"** 안의 따옴표는 변환되지 않고
     # 그대로 남아버린다.
-    text = convert_smart_quotes(text)
+    text = convert_smart_quotes(text, resolve_quotes(cfg), local.protect)
 
     # 틸드 정책: ~ 와 \~ 를 **둘 다 원문 그대로** LaTeX에 넘기고, 무엇을
     # 뜻하는지는 LaTeX이 정하게 둔다.

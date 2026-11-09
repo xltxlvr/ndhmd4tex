@@ -1351,6 +1351,32 @@ Quotes in the following contexts are unaffected by smart-quote conversion
 inline/display math, raw macros, a figure/link's `{attr="value"}` or
 `(url "title")`, and any YAML value in the front matter.
 
+### 6.0.1. `quotes` — choosing the output characters
+
+The table above shows the default, `quotes: tex`. The `quotes` key in the
+mapping (`mapping:`, `mappingrule:`, `--config`) changes it (0.20.4).
+
+| Value | Double quotes | Single quotes |
+|---|---|---|
+| `tex` (default) | ``` `` ``` `''` | `` ` `` `'` |
+| `unicode` | U+201C `“` U+201D `”` | U+2018 `‘` U+2019 `’` |
+| 4 characters `"「」『』"` | first two (open, close) | last two (open, close) |
+| 2 characters `"《》"` | those two | left as in `tex` |
+| list `["<<", ">>"]` | for multi-character marks, a list of the same length | (last two of 4 items) |
+
+`unicode` is shorthand for the four characters `“”‘’`. The open/close decision,
+the escapes (`\"`, `\'`) and the handling of quotes in code and math are the
+same as with `tex`; only the substituted characters change, and they are
+protected from later stages. An invalid value produces a warning and falls
+back to `tex`. It does not apply to `--pandoc` / `--mmd` (pandoc's smart
+extension and mmd's `--smart` handle that).
+
+- Unicode quotes appear when the font in use has the glyph, under
+  xelatex/lualatex. pdflatex needs `inputenc`.
+- The closing single-quote character is also what an apostrophe becomes. With
+  `unicode` that is U+2019, which is correct, but with `「」『』` you get
+  `don』t`; protect such places with `\'` or write `\textquoteright{}`.
+
 ### 6.1. Ellipsis (`...`)
 
 Three periods become `\ldots{}`. Set side by side, plain periods are spaced
