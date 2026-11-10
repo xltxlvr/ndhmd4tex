@@ -1660,6 +1660,7 @@ Markdown dialects, the mapping can select one.
 | `latex` (default) | passed through (nobreak space) | `\textasciicircum{}` |
 | `pandoc` | `\textasciitilde{}`; `~x~` is `\textsubscript{x}` | `^x^` is `\textsuperscript{x}` |
 | `multimarkdown` (`mmd`) | `a~b` is `a\textsubscript{b}`, as is `~x~`; a `~` with nothing after it is `\ensuremath{\sim}` | `a^b` and `^x^` are `\textsuperscript{}` |
+| `wavedash` (0.20.5) | **always** the wavedash: the character set by `wavedash:` if any, otherwise `\textasciitilde{}` | same as `latex` (`\textasciicircum{}`) |
 
 - Closed forms (`~x~`, `^x^`) must contain no whitespace. The open forms of
   multimarkdown (`a~b`, `a^b`) run over the following run of letters/digits
@@ -1675,6 +1676,12 @@ Markdown dialects, the mapping can select one.
   warnings.
 - The key is ignored under `--pandoc` (real pandoc does its own handling); the
   value `pandoc` and the option `--pandoc` are unrelated.
+- `wavedash` mode has nothing to do with `^`. It means every `~` in the text
+  is a tilde-like mark, never a subscript, and `\~` is treated identically
+  (even with `wavedash: default` it becomes `\textasciitilde{}`), so the two
+  no longer differ. `~~strike~~` is handled first and is unaffected. Code
+  spans are always `\textasciitilde{}` as above; a `~` inside math and
+  `\macro{…}` are left alone.
 - Unknown values warn and fall back to `latex`.
 
 #### The one exception: inline code spans
@@ -3697,6 +3704,15 @@ Preface body text.
   adjacent to backticks (`` `{{file.md}}` ``) is treated as a syntax example
   and is not substituted — same convention as the raw-protection rules in
   sections 9 and 10.
+- **A `{{...}}` inside a comment `<!-- ... -->` is not expanded either**
+  (0.20.6). Wrapping an include as `<!-- {{ch3.md}} -->` to switch it off
+  means the file is not even read, so a missing file raises no error and
+  `--lint` skips it. On a line that mixes both, only the `{{...}}` outside the
+  comment is expanded. Earlier versions expanded includes before comments were
+  removed, so a missing file inside a comment stopped the conversion, and a
+  `-->` inside an included file closed the comment early and leaked the rest
+  into the body. An unclosed `<!--` is not a comment (same rule as the
+  converter's own comment handling).
 - **Write `{{file.md}}` as its own line, with blank lines before and after
   it.** The included file may contain multiple paragraphs or headings, and
   if the directive is embedded mid-paragraph with other text, block parsing

@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.20.4"
+__version__ = "0.20.6"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -1670,6 +1670,69 @@ def _include_sub_outside_code(line, sub_fn):
     return "".join(out)
 
 
+def _comment_spans(text):
+    r"""본문에서 `<!-- ... -->` 주석이 차지하는 (시작, 끝) 오프셋 목록.
+
+    resolve_includes()는 주석이 지워지기 *전에* 돌기 때문에, 주석 안의
+    {{파일}}까지 진짜 포함 지시자로 읽어 왔다. 그 결과 (1) 주석으로 꺼 둔
+    {{없는파일.md}} 때문에 변환이 오류로 멈추고, (2) 포함된 파일 속의 `-->`가
+    주석을 일찍 닫아 뒷부분이 본문으로 새고, (3) 순환·깊이 검사까지 주석
+    속의 것에 걸렸다. 이 목록으로 주석 안의 {{...}}를 건너뛴다.
+
+    코드 펜스 안의 `<!--`는 주석이 아니므로, 펜스 내용을 같은 길이의
+    공백으로 가린 사본에서 COMMENT_RE 를 돌려 오프셋을 보존한다.
+    """
+    masked = []
+    in_fence, flen = False, 0
+    for line in text.split("\n"):
+        if in_fence:
+            close_m = _FENCE_CLOSE_RE.match(line)
+            if close_m and len(close_m.group(1)) >= flen:
+                in_fence = False
+            masked.append(" " * len(line))
+            continue
+        open_m = _FENCE_OPEN_RE.match(line)
+        if open_m:
+            in_fence, flen = True, len(open_m.group(1))
+            masked.append(" " * len(line))
+            continue
+        masked.append(line)
+    return [m.span() for m in COMMENT_RE.finditer("\n".join(masked))]
+
+
+def _line_starts(lines):
+    starts, pos = [], 0
+    for ln in lines:
+        starts.append(pos)
+        pos += len(ln) + 1
+    return starts
+
+
+def _in_spans(pos, spans):
+    return any(a <= pos < b for a, b in spans)
+
+
+def _sub_outside_comments(line, start, spans, fn):
+    """한 줄에서 주석 span 바깥 조각에만 fn 을 적용한다(주석 조각은 그대로)."""
+    if not spans:
+        return fn(line)
+    end = start + len(line)
+    out, cur = [], 0
+    for a, b in spans:
+        if b <= start:
+            continue
+        if a >= end:
+            break
+        ra, rb = max(a, start) - start, min(b, end) - start
+        if ra > cur:
+            out.append(fn(line[cur:ra]))
+        out.append(line[ra:rb])
+        cur = rb
+    if cur < len(line):
+        out.append(fn(line[cur:]))
+    return "".join(out)
+
+
 def _resolve_include_target(raw_name: str, base_dir: Path) -> Path:
     p = Path(raw_name)
     return p if p.is_absolute() else (base_dir / p)
@@ -1992,6 +2055,8 @@ def resolve_includes(text, base_dir: Path, pr=None, self_path=None, _chain=None,
     i, n = 0, len(lines)
     in_fence = False
     fence_len = 0
+    spans = _comment_spans(text)
+    starts = _line_starts(lines)
 
     while i < n:
         line = lines[i]
@@ -2012,7 +2077,8 @@ def resolve_includes(text, base_dir: Path, pr=None, self_path=None, _chain=None,
             i += 1
             continue
 
-        out.append(_include_sub_outside_code(line, _sub))
+        out.append(_sub_outside_comments(
+            line, starts[i], spans, lambda seg: _include_sub_outside_code(seg, _sub)))
         i += 1
 
     return "\n".join(out)
@@ -2156,6 +2222,8 @@ def resolve_includes_tracked(text, base_dir: Path, self_path, pr=None, _chain=No
     i, n = 0, len(lines)
     in_fence = False
     fence_len = 0
+    spans = _comment_spans(text)
+    starts = _line_starts(lines)
 
     while i < n:
         line = lines[i]
@@ -2179,6 +2247,8 @@ def resolve_includes_tracked(text, base_dir: Path, self_path, pr=None, _chain=No
             continue
 
         whole_m = _INCLUDE_WHOLE_LINE_RE.match(line)
+        if whole_m and _in_spans(starts[i] + whole_m.start(1) - 2, spans):
+            whole_m = None          # 주석 안의 {{...}} 는 포함 지시자가 아니다
         if whole_m:
             raw_name = whole_m.group(1).strip()
             names = _expand_transclusion_range(raw_name, base_dir)
@@ -2253,7 +2323,8 @@ def resolve_includes_tracked(text, base_dir: Path, self_path, pr=None, _chain=No
             inc_body = inc_body.strip("\n")
             return resolve_includes(inc_body, base_dir, pr, None, _chain | {target}, _depth + 1)
 
-        out.append(_include_sub_outside_code(line, _sub))
+        out.append(_sub_outside_comments(
+            line, starts[i], spans, lambda seg: _include_sub_outside_code(seg, _sub)))
         origin.append((self_path, i))
         i += 1
 
@@ -3561,12 +3632,13 @@ _TILDE_MODES = {
     "latex": "latex", "default": "latex", "": "latex",
     "pandoc": "pandoc",
     "multimarkdown": "multimarkdown", "mmd": "multimarkdown",
+    "wavedash": "wavedash",
 }
 _tilde_warned = set()
 
 
 def resolve_tilde(cfg):
-    r"""mapping의 `tilde` 값을 "latex" | "pandoc" | "multimarkdown" 으로 푼다.
+    r"""mapping의 `tilde` 값을 "latex" | "pandoc" | "multimarkdown" | "wavedash" 로 푼다.
 
     알아볼 수 없는 값이면 경고를 한 번 찍고 latex(옛 동작)로 물러난다.
     """
@@ -3577,7 +3649,7 @@ def resolve_tilde(cfg):
     if key not in _tilde_warned:
         _tilde_warned.add(key)
         print(f"경고: tilde 값 '{v}' 을(를) 알아볼 수 없습니다 "
-              "(latex | pandoc | multimarkdown). latex 로 처리합니다.",
+              "(latex | pandoc | multimarkdown | wavedash). latex 로 처리합니다.",
               file=sys.stderr)
     return "latex"
 
@@ -4134,8 +4206,13 @@ def process_inline(text, cfg, pr: Protector):
     #     잡아버린다 — 작성자가 escape한 물결표가 오히려 델리미터로
     #     둔갑하는 셈이다.
     tmode = resolve_tilde(cfg)
-    ech = _with_tilde(cfg["escape_chars"]) if tmode != "latex" else cfg["escape_chars"]
+    ech = (_with_tilde(cfg["escape_chars"]) if tmode in ("pandoc", "multimarkdown")
+           else cfg["escape_chars"])
     wd = resolve_wavedash(cfg)
+    if tmode == "wavedash" and wd is None:
+        # wavedash 모드: ~ 와 \~ 는 언제나 wavedash 문자. 지정이 없으면
+        # \textasciitilde{} 로 통일한다.
+        wd = r"\textasciitilde{}"
     text = re.sub(r"\\~", lambda m: local.protect(wd if wd is not None else "\\~"), text)
 
     # 마침표 세 개 -> 줄임표. 자리는 위 틸드 규칙과 같은 이유로 여기다.
@@ -4180,8 +4257,12 @@ def process_inline(text, cfg, pr: Protector):
                 return m.group(0)
         text = re.sub(rule["pattern"], _apply, text)
 
-    if tmode != "latex":
+    if tmode in ("pandoc", "multimarkdown"):
         text = apply_tilde_caret(text, tmode, ech, local)
+    elif tmode == "wavedash":
+        # 취소선 ~~ 같은 인라인 규칙이 끝난 뒤에 남은 ~ 는 전부 wavedash.
+        # ^ 는 건드리지 않는다(latex 모드와 같다).
+        text = re.sub(r"~", lambda m: local.protect(wd), text)
     text = escape_text(text, ech)
     text = local.restore(text)
     return text
@@ -6057,10 +6138,14 @@ def lint_source(text, path=None, base_dir=None, known_defs=None):
 
     # ── 6. {{포함}} 파일 ────────────────────────────────────────
     base = Path(base_dir) if base_dir else Path(".")
+    _cspans = _comment_spans("\n".join(lines))
+    _cstarts = _line_starts(lines)
     for i, ln in enumerate(lines):
         if i in fenced:
             continue
         for m in INCLUDE_RE.finditer(_mask_inline_code(ln)):
+            if _in_spans(_cstarts[i] + m.start(), _cspans):
+                continue            # 주석 안의 {{...}} 는 포함 지시자가 아니다
             name = m.group(1).strip()
             try:
                 batch_names = _expand_transclusion_range(name, base)
@@ -6160,7 +6245,10 @@ def _lint_targets(root):
     while queue:
         cur_path, cur_text = queue.pop(0)
         _, body = split_frontmatter(cur_text)
+        _bspans = _comment_spans(body)
         for m in INCLUDE_RE.finditer(_mask_inline_code_multiline(body)):
+            if _in_spans(m.start(), _bspans):
+                continue            # 주석 안의 {{...}} 는 포함 지시자가 아니다
             name = m.group(1).strip()
             try:
                 batch_names = _expand_transclusion_range(name, root.parent)
