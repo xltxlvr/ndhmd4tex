@@ -53,8 +53,8 @@ else
     exit 1
 fi
 
-# --bin 으로 설치되는 파일 목록 (ndhmdsync 확장자는 자동 판별)
-BIN_FILES=("ndhmd4tex" "ndhmd-default.nmd")
+# --bin 으로 설치되는 파일 목록
+BIN_FILES=("ndhmd4tex" "ndhmdsync" "ndhmd2html" "ndhmd-default.nmd")
 
 # sudo로 실행되었을 때, resources/guide/config 쪽에 생성된 파일/폴더의 소유권을
 # root가 아니라 실제 사용자(SUDO_USER)로 되돌린다. --bin 쪽 대상(/usr/local/bin,
@@ -117,7 +117,7 @@ if [ "$MODE" = "uninstall" ]; then
 
     echo "This will remove:"
     if [ -n "$BIN_DIR" ]; then
-        for f in "${BIN_FILES[@]}" "ndhmdsync"; do
+        for f in "${BIN_FILES[@]}"; do
             [ -e "$BIN_DIR/$f" ] && echo "  - $BIN_DIR/$f"
         done
     fi
@@ -135,7 +135,7 @@ if [ "$MODE" = "uninstall" ]; then
     fi
 
     if [ -n "$BIN_DIR" ]; then
-        for f in "${BIN_FILES[@]}" "ndhmdsync"; do
+        for f in "${BIN_FILES[@]}"; do
             if [ -e "$BIN_DIR/$f" ]; then
                 rm -f "$BIN_DIR/$f" && echo "Removed $BIN_DIR/$f"
             fi
@@ -211,6 +211,9 @@ if [ -n "$BIN_ARG" ]; then
 
     cp "script/ndhmdsync.py" "$BIN_DIR/ndhmdsync" || { echo "[Error] Failed to copy ndhmdsync.py"; exit 1; }
     chmod +x "$BIN_DIR/ndhmdsync"
+
+    cp "script/ndhmd2html.py" "$BIN_DIR/ndhmd2html" || { echo "[Error] Failed to copy ndhmd2html.py"; exit 1; }
+    chmod +x "$BIN_DIR/ndhmd2html"
 
     cp "script/ndhmd-default.nmd" "$BIN_DIR/" || { echo "[Error] Failed to copy ndhmd-default.nmd"; exit 1; }
 
