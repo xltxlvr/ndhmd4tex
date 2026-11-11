@@ -7,15 +7,12 @@ You write in an extended Markdown called the "ndhmd dialect" (ndhmarkdown dialec
 The default header assumes oblivoir (memoir-based) + kotex, but `class:` and `preamble:`
 in the front matter let you change that freely.
 
-## Batch Installation
-
-Read [INSTALLATION.md](https://github.com/xltxlvr/ndhmd4tex/blob/main/INSTALLATION.md) (in Korean).
-
 ## What's in the box
 
 | File | Role |
 |---|---|
 | `ndhmd4tex.py` | The converter: Markdown (ndhmd dialect) → LaTeX, compiling, checking (`--lint`) |
+| `ndhmd2html.py` | Companion converter: the same manuscripts → HTML/XHTML (a first step toward EPUB). Needs `ndhmd4tex.py` beside it |
 | `ndhmd-default.nmd` | Default header applied to manuscripts that have no front matter |
 | `ndhmdsync.py`, `ndhmdsync.ini.example` | Two-way navigation between the PDF and the source `.md` (via SyncTeX) |
 | `sample_mapping.yaml` | Example `mapping:` settings for changing which LaTeX commands markup turns into |
@@ -30,9 +27,9 @@ Read [INSTALLATION.md](https://github.com/xltxlvr/ndhmd4tex/blob/main/INSTALLATI
 - To produce a PDF: TeX Live or MiKTeX. The default header needs oblivoir and kotex;
   for Korean, xelatex or lualatex (`--pdfxe`, `--pdflua`) is recommended.
   The compile wrapper `ksruncltex` is available from its
-  [home page](https://github.com/xltxlvr/ksruncltex);
+  [home page](https://nonametex.imweb.me/?bmode=view&idx=170827898&t=board);
   to compile with standard tools instead, use `--latexmk`.
-- Optional: `pandoc` (`--pandoc`), `multimarkdown` (`--mmd`).
+- Optional: `pandoc` (`--pandoc`), `multimarkdown` (`--mmd`), and `-shell-escape` if you use `minted`
 
 ## Quick start
 

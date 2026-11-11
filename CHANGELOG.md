@@ -1,5 +1,30 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd2html.py 0.2.0, ndhmd4tex.py 0.20.6 그대로
+
+- **딸림 스타일시트 `<출력이름>_simple.css`.** 변환할 때 출력 파일 옆에 만들고 HTML 에서
+  연결한다. 꾸밈을 최소로 한 출발점으로, 도구가 내는 class 가 모두 설명과 함께 적혀 있고
+  그 문서에만 나오는 class(환경 이름, `tex-매크로`, extra_inline 규칙 이름)는 빈 규칙으로
+  들어간다. 이미 있는 파일은 덮어쓰지 않으며, 문서에 새 class 가 생기면 그것만 끝에 빈
+  규칙으로 덧붙인다. `--no-simple-css` 로 끈다. `--css` 로 준 파일은 이 뒤에 연결된다.
+
+## ndhmd2html.py 0.1.0 (새 도구), ndhmd4tex.py 0.20.6 그대로
+
+- **`ndhmd2html.py`: ndhmd 원고를 HTML 로.** EPUB 으로 가는 준비 단계다. ndhmd4tex.py 를
+  고치지 않고 옆에서 불러 쓰므로(front matter·setup·`{{포함}}`·주석·블록 분할·표 해석)
+  두 도구가 원고를 같게 읽는다. `python3 ndhmd2html.py 원고.md [--xhtml] [--toc] [--css 파일]`.
+- 조판 전용 마크업(리스트 `{!...}`, 그림 place/align/wrapspec, 표 env/rowhead, 환경 raw=,
+  `\vspace` 등)은 무시한다. `||` 는 두 평문단을 한 `<p>` 로 잇는 데만 쓴다.
+- `:::{환경}` 은 quote/quotation/center/table/figure/verse/hverse/thebibliography 만 표준
+  HTML 로 옮기고, 나머지는 `<div class="환경이름" data-키="값">` 으로 식별만 가능하게 낸다.
+- raw LaTeX(```tex, `{{tex:파일}}`, tabular/tblr, `lines: raw`)은 생략하고 개수를 알린다
+  (`--keep-raw`). 수식은 원문 그대로 내보내 MathJax 가 읽는다.
+- 출력은 XML 로도 올바르고 id 는 XML 이름 규칙에 맞춘다(`fig:one` -> `fig-one`).
+  가이드 두 권과 예제 원고에서 중복 id·끊긴 링크·문단 속 블록 요소가 없음을 확인했다.
+- 상호참조(`[#라벨]` `[F:]` `[T:]` `[title:]` `[C:]` `[@키]`), 각주 종류, 조사 매크로,
+  tagged reference, grid 표(병합 셀), showexam, Beamer 프레임을 다룬다. 자세한 규칙과
+  내보내는 class 목록은 `ndhmd2html.py` 맨 앞의 설명에 있다.
+
 ## ndhmd4tex.py 0.20.6, ndhmdsync.py 0.5.6 그대로
 
 - **버그 수정: 주석 `<!-- ... -->` 안의 `{{파일}}`이 유효했다.** 트랜스클루전은 주석이
