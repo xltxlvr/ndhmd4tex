@@ -1111,6 +1111,86 @@ at the front of the document.
 
 ---
 
+### 2.4. `RTLtypeset` — right-to-left scripts
+
+For Hebrew, Arabic or Syriac words and phrases inside Korean (or English) text
+(0.21.0). There are two problems: Hangul and Latin fonts lack those glyphs, so
+the font must change; and with two or more words the whole run must be laid out
+right to left (a single word comes out right with only a font change, but
+several words end up in reversed order).
+
+The converter finds each RTL run, wraps it as one unit, and puts the lines that
+command needs **at the very end of the preamble**. If the manuscript has no RTL
+run nothing happens, so documents that do not use this are unchanged. With the
+key absent the default is automatic detection + polyglossia + FreeSerif.
+
+```yaml
+RTLtypeset: polyglossia                  # short form: method only
+RTLtypeset: "babel, markup={RL:%s}"      # several, comma-separated
+RTLtypeset:                              # long form
+  method: polyglossia
+  detect: auto
+  font: FreeSerif
+  hebrew: {font: "Frank Ruehl CLM"}
+  arabic: {font: Amiri, lang: persian}
+```
+
+| Key | Value | Meaning |
+|---|---|---|
+| `method` | `polyglossia` (default) / `babel` / `primitive` / `custom` / `none` | what to wrap with |
+| `detect` | `auto` (default) / `markup` | how RTL runs are recognized |
+| `markup` | `"{RL:%s}"` | the notation used in the manuscript when `detect: markup`; `%s` is the content |
+| `font` | `FreeSerif` | default font for all RTL scripts |
+| `hebrew` / `arabic` / `syriac` | `{font: …, lang: …}` | per-script font and language name |
+| `template` | `'\RL{%(text)s}'` | the command for `method: custom`; `%(lang)s` is also available |
+
+**Detection.** `auto` works by character range. A run starts and ends with an
+RTL letter; spaces, digits and basic punctuation (`. , ; : ! ? / -`) in between
+belong to it. Digits right after the run are included too (under the Unicode
+bidirectional rules they sit at the left end of the run); digits before it are
+not. Parentheses and quotation marks end a run. `markup` wraps only what you
+mark — use it when Latin letters or parentheses must be part of the run.
+Unmarked RTL letters pass through untouched, so they will not print without a
+font. Code spans, math and `\macro{…}` are never touched either way, so a
+hand-written `\texthebrew{…}` is not wrapped again. Invisible direction
+controls inserted by editors (LRM, RLM, …) are removed.
+
+**Methods.** Shown for Hebrew (`arabic` and `syriac` work the same way).
+
+| `method` | In the body | Added to the preamble |
+|---|---|---|
+| `polyglossia` | `\texthebrew{…}` | `\usepackage{polyglossia}`, `\setotherlanguage{hebrew}`, a `\hebrewfont` definition |
+| `babel` | `\foreignlanguage{hebrew}{…}` | babel (`bidi=default`, `bidi=basic` on LuaTeX), `\babelprovide[import]{hebrew}`, `\babelfont[hebrew]{rm}{…}` |
+| `primitive` | `\ndhRTL{\hebrewfont}{…}` | no packages: `\ndhRTL` built on `\beginR…\endR` (XeTeX) / `\textdir TRT` (LuaTeX), a `\hebrewfont` definition |
+| `custom` | your `template` | nothing; write the preamble yourself |
+| `none` | not wrapped | nothing |
+
+- **What you declare yourself is left alone** (0.21.1). If `preamble:` already
+  loads polyglossia or babel it is not loaded again, and if the language is
+  already declared (`\setotherlanguage{hebrew}`, `\babelprovide{hebrew}`) the
+  language declaration and the font assignment are skipped. An existing
+  `\hebrewfont` is kept. The decision is made by TeX conditionals, so it also
+  holds when the class or another package did the loading. When you load babel
+  yourself, give it the `bidi=` option yourself.
+- Under XeTeX `polyglossia` loads the `bidi` package, which patches many other
+  packages and must be loaded late; that is why these lines go at the very end
+  of the preamble. If it clashes with the class or another package, try
+  `primitive` — it is enough for quoting words and phrases.
+- For whole RTL paragraphs use polyglossia's environment directly:
+  `:::{hebrew}` … `:::`.
+- With `--body-only` the required preamble lines are printed as a notice.
+- RTL letters inside code spans are not wrapped (the monospace font must have
+  the glyphs). Nor are those in `title:` / `author:`; write `\texthebrew{…}`
+  there yourself if needed.
+- **What was verified**: `polyglossia` (the default) typesets inline RTL runs
+  correctly with the oblivoir class under both XeTeX and LuaTeX. `primitive`
+  and `babel` were checked with XeTeX + fontspec (article); their LuaTeX side
+  and the combination with oblivoir were not.
+- If a document without `\DocumentMetadata` fails under the polyglossia method
+  with `\UseMathForPositioningText` undefined (presumably from bidi), add
+  `\providecommand\UseMathForPositioningText{}` to `preamble:`. Documents
+  that declare `\DocumentMetadata` do not hit this.
+
 ## 3. Headings
 
 ```markdown

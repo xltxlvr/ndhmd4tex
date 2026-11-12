@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.20.6"
+__version__ = "0.21.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3760,6 +3760,15 @@ def process_inline(text, cfg, pr: Protector):
     text = _VERB_SPAN_RE.sub(protect_raw, text)
     text = build_macro_re(cfg).sub(protect_raw, text)
 
+    # RTL 구간(히브리·아랍·시리아 문자)을 한 덩어리로 감싼다. 코드·수식·매크로는
+    # 이미 보호돼 있으므로 \texthebrew{...} 처럼 손으로 감싼 것은 다시 감싸지 않는다.
+    rtl = cfg.get("_rtl")
+    if rtl:
+        def _rtl_tex(script, inner):
+            cfg["_rtl_used"].add(script)
+            return local.protect(rtl["template"] % {"lang": rtl["langs"][script], "text": inner})
+        text = rtl_wrap(text, rtl, _rtl_tex)
+
     # 독립된 줄이 아니라 "문장 중"에 등장하는 --- (앞뒤에 다른 대시가 붙지
     # 않은, 정확히 3개짜리)는 원고에서 흔히 \textemdash 같은 효과로 쓰인다.
     # 기본값은 \textemdash 자체를 방출한다 — 표준 LaTeX 명령이라 preamble에
@@ -6339,6 +6348,9 @@ KNOWN_META_KEYS = {
     # 문자열로 줬을 때는 만들어져 버려서) 원고 작성자가 의도하지 않은
     # \NMgraphicspath 매크로가 딸려 나온다.
     "graphicspath",
+    # RTLtypeset: 오른쪽에서 왼쪽으로 쓰는 문자(히브리·아랍·시리아)의 조판 방식.
+    # resolve_rtl() 참고.
+    "RTLtypeset",
     # maketitle: true, tocloft: {...} — \begin{document} 바로 다음에
     # \maketitle/\tableofcontents/\listoffigures/\listoftables 를 자동으로
     # 넣어 준다(_build_frontmatter_commands 참고). 여기 등록해 두지 않으면
@@ -6440,6 +6452,226 @@ def _build_author(author):
     return _sub(author)
 
 
+# --------------------------------------------------------------------------
+# RTL(오른쪽에서 왼쪽으로 쓰는 문자) 조판
+# --------------------------------------------------------------------------
+#
+# 한국어·영어 본문에 히브리어나 아랍어 낱말·구절이 섞이는 경우를 다룬다.
+# 문제는 둘이다.
+#   (1) 글꼴: 한글·라틴 글꼴에는 그 글리프가 없다. 글꼴을 바꿔 줘야 한다.
+#   (2) 방향: 낱말 하나는 글꼴만 바꿔도 바르게 나오지만(글꼴이 낱말 안의
+#       순서를 처리한다), 낱말이 둘 이상이면 낱말 순서가 뒤집힌다. 구간
+#       전체를 RTL 로 감싸야 한다(XeTeX 실측).
+# 그래서 변환기가 RTL 구간을 찾아 한 덩어리로 감싸고, 그 감싸는 명령이
+# 동작하는 데 필요한 줄을 프리앰블 끝에 넣는다. 원고에 RTL 구간이 하나도
+# 없으면 아무것도 하지 않는다.
+#
+# front matter 의 RTLtypeset 으로 조절한다.
+#
+#   RTLtypeset: polyglossia                 # 방식만
+#   RTLtypeset: "babel, markup={RL:%s}"     # 방식 + 인식 방법
+#   RTLtypeset:
+#     method: polyglossia      # polyglossia(기본) | babel | primitive | custom | none
+#     detect: auto             # auto(기본): 문자 범위로 자동 인식
+#                              # markup: 아래 markup 표기로 감싼 것만
+#     markup: "{RL:%s}"        # detect: markup 일 때 원고에서 쓰는 표기
+#     font: FreeSerif          # 모든 RTL 문자의 기본 글꼴
+#     hebrew: {font: "Frank Ruehl CLM"}          # 문자별 글꼴
+#     arabic: {font: Amiri, lang: persian}       # 문자별 언어 이름
+#     template: '\RL{%(text)s}'                  # method: custom 일 때의 명령
+#
+# method 별로 내보내는 것:
+#   polyglossia  \texthebrew{...}             + polyglossia, \setotherlanguage, \hebrewfont
+#   babel        \foreignlanguage{hebrew}{...} + babel(bidi=...), \babelprovide, \babelfont
+#   primitive    \ndhRTL{\hebrewfont}{...}     + 패키지 없이 \beginR..\endR(XeTeX) /
+#                                               \textdir TRT(LuaTeX). 낱말·구절용.
+#   custom       template 그대로              (프리앰블은 넣지 않는다)
+#   none         아무것도 하지 않는다
+
+_RTL_SCRIPTS = (
+    # (문자 이름 = 기본 언어 이름, fontspec Script, 코드 범위)
+    ("hebrew", "Hebrew", ((0x0590, 0x05FF), (0xFB1D, 0xFB4F))),
+    ("arabic", "Arabic", ((0x0600, 0x06FF), (0x0750, 0x077F), (0x08A0, 0x08FF),
+                          (0xFB50, 0xFDFF), (0xFE70, 0xFEFF))),
+    ("syriac", "Syriac", ((0x0700, 0x074F),)),
+)
+_RTL_CLASS = "".join("\\u%04x-\\u%04x" % r for _n, _s, rs in _RTL_SCRIPTS for r in rs)
+# RTL 글자로 시작해 RTL 글자로 끝나는 구간. 사이의 공백·숫자·기본 구두점은
+# 포함한다. 괄호와 따옴표는 넣지 않는다 — 방식에 따라 거울상 처리가 다르고,
+# 따옴표는 뒤의 스마트 따옴표 단계가 맡아야 한다.
+# 구간 바로 뒤의 숫자("... פסוק 3")도 포함한다 — 유니코드 양방향 알고리즘에서
+# RTL 글자 뒤의 숫자는 그 RTL 구간에 붙어 왼쪽 끝에 놓인다. 앞의 숫자는 붙지 않는다.
+_RTL_RUN_RE = re.compile("[%s]+(?:[ \\t\\u00a0\\d.,;:!?/\\-\\u2013\\u2014]*[%s]+)*"
+                         "(?:[ \\t\\u00a0]*\\d+(?:[.,:/\\-]\\d+)*)*"
+                         % (_RTL_CLASS, _RTL_CLASS))
+_RTL_CHAR_RE = re.compile("[%s]" % _RTL_CLASS)
+# 편집기가 끼워 넣는 보이지 않는 방향 제어 문자(LRM, RLM, 임베딩, 격리).
+_BIDI_CTRL_RE = re.compile("[‎‏‪-‮⁦-⁩]")
+_RTL_METHODS = ("polyglossia", "babel", "primitive", "custom", "none")
+_RTL_TEMPLATES = {
+    "polyglossia": r"\text%(lang)s{%(text)s}",
+    "babel": r"\foreignlanguage{%(lang)s}{%(text)s}",
+    "primitive": r"\ndhRTL{\%(lang)sfont}{%(text)s}",
+}
+_rtl_warned = set()
+
+
+def _rtl_warn(msg):
+    if msg not in _rtl_warned:
+        _rtl_warned.add(msg)
+        print("경고: " + msg, file=sys.stderr)
+
+
+def rtl_script(ch):
+    """글자 하나가 속한 RTL 문자 이름(hebrew/arabic/syriac). 아니면 None."""
+    cp = ord(ch)
+    for name, _script, ranges in _RTL_SCRIPTS:
+        for a, b in ranges:
+            if a <= cp <= b:
+                return name
+    return None
+
+
+def resolve_rtl(meta):
+    """front matter 의 RTLtypeset 을 풀어 설정 딕셔너리로. 끈 경우 None.
+
+    돌려주는 것: method, detect("auto"|"markup"), markup_re, template,
+    langs({문자: 언어 이름}), fonts({문자: 글꼴})."""
+    val = None
+    for k, v in (meta or {}).items():
+        if isinstance(k, str) and k.lower() == "rtltypeset":
+            val = v
+            break
+    spec = {"method": "polyglossia", "detect": "auto", "markup": None,
+            "font": "FreeSerif", "template": None}
+    per = {}
+    if val is False:
+        return None
+    if isinstance(val, str):
+        for part in (t.strip() for t in val.split(",")):
+            if not part:
+                continue
+            low = part.lower()
+            if low in _RTL_METHODS:
+                spec["method"] = low
+            elif low in ("auto", "markup"):
+                spec["detect"] = low
+            elif low.startswith("markup="):
+                spec["detect"], spec["markup"] = "markup", part[7:].strip()
+            elif low.startswith("font="):
+                spec["font"] = part[5:].strip()
+            elif low in ("off", "false"):
+                return None
+            else:
+                _rtl_warn(f"RTLtypeset 의 '{part}' 을(를) 알 수 없어 무시합니다.")
+    elif isinstance(val, dict):
+        for k, v in val.items():
+            key = str(k).lower()
+            if key in ("method", "detect"):
+                spec[key] = str(v).strip().lower()
+            elif key in ("markup", "font", "template"):
+                spec[key] = None if v is None else str(v)
+            elif key in [n for n, _s, _r in _RTL_SCRIPTS] and isinstance(v, dict):
+                per[key] = v
+            else:
+                _rtl_warn(f"RTLtypeset 의 키 '{k}' 을(를) 알 수 없어 무시합니다.")
+        if spec["markup"] and "detect" not in {str(k).lower() for k in val}:
+            spec["detect"] = "markup"
+    elif val not in (None, True):
+        _rtl_warn(f"RTLtypeset: {val!r} 을(를) 읽지 못해 기본값을 씁니다.")
+
+    if spec["method"] not in _RTL_METHODS:
+        _rtl_warn(f"RTLtypeset 의 method '{spec['method']}' 을(를) 알 수 없습니다 "
+                  f"({' | '.join(_RTL_METHODS)}). polyglossia 로 둡니다.")
+        spec["method"] = "polyglossia"
+    if spec["method"] == "none":
+        return None
+    if spec["method"] == "custom" and not spec["template"]:
+        _rtl_warn("RTLtypeset 의 method: custom 에는 template 이 필요합니다. polyglossia 로 둡니다.")
+        spec["method"] = "polyglossia"
+    if spec["detect"] not in ("auto", "markup"):
+        _rtl_warn(f"RTLtypeset 의 detect '{spec['detect']}' 을(를) 알 수 없어 auto 로 둡니다.")
+        spec["detect"] = "auto"
+    markup_re = None
+    if spec["detect"] == "markup":
+        pat = spec["markup"] or "{RL:%s}"
+        if pat.count("%s") != 1:
+            _rtl_warn(f"RTLtypeset 의 markup '{pat}' 에는 %s 가 정확히 한 번 있어야 합니다. "
+                      f"{{RL:%s}} 로 둡니다.")
+            pat = "{RL:%s}"
+        head, tail = pat.split("%s")
+        markup_re = re.compile(re.escape(head) + "(.+?)" + re.escape(tail))
+    template = spec["template"] if spec["method"] == "custom" or spec["template"] \
+        else _RTL_TEMPLATES[spec["method"]]
+    if "%(text)s" not in template:
+        template = template.replace("%s", "%(text)s") if "%s" in template else template + "{%(text)s}"
+    return {
+        "method": spec["method"], "detect": spec["detect"], "markup_re": markup_re,
+        "template": template,
+        "langs": {n: str((per.get(n) or {}).get("lang") or n) for n, _s, _r in _RTL_SCRIPTS},
+        "fonts": {n: str((per.get(n) or {}).get("font") or spec["font"]) for n, _s, _r in _RTL_SCRIPTS},
+    }
+
+
+def rtl_wrap(text, rtl, wrap):
+    """text 에서 RTL 구간을 찾아 wrap(문자 이름, 내용) 의 결과로 바꾼다.
+
+    ndhmd4tex 과 ndhmd2html 이 같이 쓴다 — 무엇이 RTL 구간인지는 여기서만
+    정한다. 방향 제어 문자는 지운다(LaTeX 에서는 없는 글리프로 찍히고, 감싼
+    뒤에는 필요도 없다)."""
+    text = _BIDI_CTRL_RE.sub("", text)
+    if rtl["detect"] == "markup":
+        def _m(m):
+            inner = m.group(1)
+            first = _RTL_CHAR_RE.search(inner)
+            return wrap(rtl_script(first.group(0)) if first else "hebrew", inner)
+        return rtl["markup_re"].sub(_m, text)
+    return _RTL_RUN_RE.sub(lambda m: wrap(rtl_script(m.group(0)[0]), m.group(0)), text)
+
+
+def rtl_preamble_lines(cfg):
+    """본문에서 실제로 쓰인 RTL 문자에 필요한 프리앰블 줄. 쓰이지 않았으면 []."""
+    rtl = (cfg or {}).get("_rtl")
+    used = sorted((cfg or {}).get("_rtl_used") or ())
+    if not rtl or not used or rtl["method"] == "custom":
+        return []
+    script_of = {n: s for n, s, _r in _RTL_SCRIPTS}
+    langs = [(rtl["langs"][n], script_of[n], rtl["fonts"][n]) for n in used]
+    m = rtl["method"]
+    out = ["% RTLtypeset: " + m]
+    # 사용자가 preamble 에서 직접 선언한 것은 건드리지 않는다. 패키지를 이미
+    # 불렀으면 다시 부르지 않고(옵션이 다르면 option clash 가 난다), 그 언어를
+    # 이미 선언했으면 언어 선언과 글꼴 지정을 건너뛴다. 원고의 preamble 글자를
+    # 뒤지지 않고 TeX 쪽에서 판단하므로 클래스나 다른 패키지가 부른 경우에도 맞다.
+    if m == "polyglossia":
+        out.append(r"\IfPackageLoadedTF{polyglossia}{}{\usepackage{polyglossia}}")
+        for lang, script, font in langs:
+            out.append(rf"\ifdefined\text{lang}\else\setotherlanguage{{{lang}}}\fi")
+            out.append(rf"\ifdefined\{lang}font\else\newfontfamily\{lang}font[Script={script}]{{{font}}}\fi")
+    elif m == "babel":
+        out.append(r"\usepackage{iftex}")
+        out.append(r"\IfPackageLoadedTF{babel}{}{\ifluatex\usepackage[bidi=basic]{babel}"
+                   r"\else\usepackage[bidi=default]{babel}\fi}")
+        for lang, _script, font in langs:
+            out.append(rf"\ifdefined\extras{lang}\else\babelprovide[import]{{{lang}}}"
+                       rf"\babelfont[{lang}]{{rm}}{{{font}}}\fi")
+    else:       # primitive
+        out.append(r"\usepackage{iftex}")
+        out.append(r"\usepackage{fontspec}")
+        for lang, script, font in langs:
+            out.append(rf"\ifdefined\{lang}font\else\newfontfamily\{lang}font[Script={script}]{{{font}}}\fi")
+        out.append(r"\ifxetex\TeXXeTstate=1 \fi")
+        out.append(r"\providecommand\ndhRTL[2]{{#1\ifluatex\textdir TRT \else\beginR\fi "
+                   r"#2\ifluatex\else\endR\fi}}")
+    return out
+
+
+def _rtl_setup(cfg, meta):
+    """convert()/generate_syncinfo() 가 본문을 그리기 전에 부른다."""
+    cfg["_rtl"] = resolve_rtl(meta)
+    cfg["_rtl_used"] = set()
+
+
 def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):
     """front matter로부터 헤더(프리앰블) 줄 리스트를 만든다.
 
@@ -6498,6 +6730,8 @@ def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):
         # 별도 패키지가 필요 없다(실측으로 확인).
         header.append(r"\IfPackageLoadedTF{graphicx}{}{\usepackage{graphicx}}")
         header.append(rf"\graphicspath{{{braces}}}")
+    # RTL 조판에 필요한 줄은 프리앰블 맨 끝에 둔다(bidi 는 늦게 불러야 한다).
+    header.extend(rtl_preamble_lines(cfg))
     if title:
         header.append(rf"\title{{{title}}}")
     if author:
@@ -6991,6 +7225,7 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
     # 리스트일 뿐), 이렇게 앞당겨도 그 뒤(protect_block_level 등)의
     # 기존 동작에는 전혀 영향이 없다.
     pr = Protector()
+    _rtl_setup(cfg, meta)
 
     body = resolve_includes(body, base_dir, pr, self_path=source_path)
 
@@ -7021,6 +7256,9 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
     # 이제 각주까지 준비됐으니 showexam의 오른쪽 상자를 채운다.
     body_tex = expand_showexam(body_tex, showexam_store, cfg)
 
+    if body_only and rtl_preamble_lines(cfg):
+        print("알림: 본문에 RTL 문자가 있습니다. 이 조각을 넣는 문서의 프리앰블에 다음이 "
+              "필요합니다.\n  " + "\n  ".join(rtl_preamble_lines(cfg)[1:]), file=sys.stderr)
     if body_only:
         return body_tex
     return build_document(body_tex, meta, cfg)
@@ -7105,6 +7343,7 @@ def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_pat
     # 하기 때문이다. 이 함수 하나만 뒤에서 다시 Protector()를 만들지
     # 않도록 아래의 중복 생성도 제거했다.
     pr = Protector()
+    _rtl_setup(cfg, meta)
 
     body, file_origin = resolve_includes_tracked(body, base_dir, top_path, pr)
 

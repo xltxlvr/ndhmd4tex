@@ -370,6 +370,8 @@ wavedash: default
 # multimarkdown   (mmd 도 가능) 위의 닫힌 꼴에 더해, a~b 는 a\textsubscript{b},
 #                 a^b 는 a\textsuperscript{b} (뒤따르는 글자·숫자 덩어리까지).
 #                 뒤에 글자가 없는 ~ 는 \ensuremath{\sim}.
+# wavedash       ~ 와 \~ 를 언제나 wavedash 문자로(아래 wavedash: 로 정한 문자, 없으면
+#                 \textasciitilde{}). ^ 는 latex 와 같다. 첨자 기능 없음.
 # \~ 는 어느 모드에서나 wavedash 규칙을 따른다. --pandoc(진짜 pandoc)에서는 무시.
 tilde: latex
 
@@ -658,7 +660,23 @@ showexam:
 #   compileoption  --pdf 계열 옵션으로 컴파일할 때 넘길 인자
 #   pandocoption   --pandoc 모드에서 pandoc에 넘길 인자 (1.1 참고).
 #                  프리앰블·\documentclass 를 건드리는 옵션은 무시된다.
+#   mmdoption      --mmd 모드에서 multimarkdown에 넘길 인자 (1.4.1 참고)
+#   baseheaderlevel  --mmd 모드에서 toplevel이 없을 때 쓸 Base Header Level
+#   latexmkoption  --latexmk 로 컴파일할 때 넘길 인자
 #   setup          다른 문서의 front matter를 상속받아 오기
+#   graphicspath   그림을 찾을 폴더들 — preamble 끝에 \graphicspath 를 넣는다
+#   maketitle      true 면 \begin{document} 뒤에 \maketitle 을 넣는다 (2.3 참고)
+#   tocloft        {toc, lof, lot, asterisk} — 목차·그림목차·표목차 자동 삽입 (2.3 참고)
+#   RTLtypeset     히브리·아랍·시리아 문자 구간의 조판 방식 (2.4 참고).
+#                  이 파일의 키가 아니다 — 프리앰블에 줄을 넣는 문서 단위 설정이라
+#                  front matter(또는 setup: 으로 물려주는 헤더)에 쓴다. 예:
+#                    RTLtypeset: polyglossia
+#                    RTLtypeset: "primitive, markup={RL:%s}"
+#                    RTLtypeset:
+#                      method: polyglossia    # polyglossia | babel | primitive | custom | none
+#                      detect: auto           # auto | markup
+#                      font: FreeSerif
+#                      hebrew: {font: "Frank Ruehl CLM"}
 #
 # {{filename}} 파일 포함은 설정이 아니라 본문 문법이다(20장).
 # ══════════════════════════════════════════════════════════════════
@@ -672,3 +690,18 @@ showexam:
 #  A: '\footnoteA%(opt)s{%(text)s}'
 #  B: '\footnoteB%(opt)s{%(text)s}'
 #  default: '\footnoteA%(opt)s{%(text)s}'   # 꼬리표 없는 각주의 종류를 바꿈
+
+# ── ndhmd2html 전용 규칙 ───────────────────────────────────────────
+# ndhmd4tex 은 이 키를 읽지 않는다. HTML 로 바꿀 때만 쓰인다.
+# macros:       \이름{인자} 를 어떤 HTML 로 낼지. %(1)s %(2)s … 가 인자(인라인 처리된
+#               것), %(opt)s 가 [옵션]. 여기 없는 모르는 매크로는
+#               <span class="tex-이름">마지막 인자</span> 가 된다.
+# environments: :::{이름} 을 어떤 요소로 낼지. 태그 이름만 적거나 {tag, class} 로 적는다.
+#               여기 없는 환경은 <div class="이름"> 이 된다.
+#html:
+#  macros:
+#    keys: "<kbd>%(1)s</kbd>"
+#    gls: '<abbr title="%(2)s">%(1)s</abbr>'
+#  environments:
+#    note: aside
+#    tip: {tag: aside, class: "admonition tip"}

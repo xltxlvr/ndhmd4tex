@@ -1,5 +1,36 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.21.1, ndhmd2html.py 0.3.0 그대로
+
+- `sample_mapping.yaml`: front matter 전용 키 목록에 `RTLtypeset`, `mmdoption`,
+  `baseheaderlevel`, `latexmkoption`, `graphicspath`, `maketitle`, `tocloft` 를 보태고,
+  ndhmd2html 용 `html:` 키(macros, environments)의 예시를 넣었다.
+- **`RTLtypeset`: 사용자가 직접 선언한 것은 건드리지 않는다.** 0.21.0 은 `\usepackage{polyglossia}` /
+  `\usepackage[bidi=...]{babel}` 과 언어 선언을 무조건 넣었다. babel 을 다른 옵션으로 이미 불렀으면
+  option clash 가 나고, `\babelfont` 는 사용자가 정한 글꼴을 덮어썼다. 이제 패키지는
+  `\IfPackageLoadedTF` 로, 언어는 `\texthebrew` / `\extrashebrew` 가 정의됐는지로 판단해 건너뛴다.
+  babel 을 직접 부르고 히브리어 글꼴을 따로 준 문서로 조판해, 그 글꼴이 유지되는 것을 확인했다.
+
+## ndhmd4tex.py 0.21.0, ndhmd2html.py 0.3.0
+
+- **`RTLtypeset`: 오른쪽에서 왼쪽으로 쓰는 문자.** 한국어·영어 본문에 섞인 히브리·아랍·시리아
+  문자 구간을 찾아 한 덩어리로 감싸고, 필요한 줄을 프리앰블 맨 끝에 넣는다. 원고에 RTL
+  구간이 없으면 아무것도 하지 않는다(가이드 두 권의 출력이 버전 줄 외에 같음을 확인).
+  - `method`: `polyglossia`(기본, `\texthebrew{}`) / `babel`(`\foreignlanguage{}`) /
+    `primitive`(패키지 없이 `\beginR..\endR` 또는 `\textdir TRT`) / `custom`(template) / `none`.
+  - `detect`: `auto`(기본, 문자 범위로 자동 인식) / `markup`(`markup: "{RL:%s}"` 로 표기한 것만).
+  - 글꼴은 `font:`(기본 FreeSerif)와 문자별 `hebrew: {font:, lang:}` 로 정한다. `preamble:` 에
+    `\hebrewfont` 가 이미 있으면 그것을 쓴다.
+  - 구간 뒤의 숫자는 구간에 포함한다(유니코드 양방향 규칙). 방향 제어 문자는 지운다.
+  - `--syncinfo` 의 줄 대응은 넣은 프리앰블 줄까지 계산한다. `--body-only` 는 필요한 줄을 알린다.
+  - `polyglossia` 는 oblivoir + XeTeX/LuaTeX 에서 인라인 RTL 이 바르게 나오는 것을 확인했다.
+    `primitive`·`babel` 은 XeTeX + fontspec(article)에서 확인했고 LuaTeX·oblivoir 조합은 미확인.
+  - `\DocumentMetadata` 없는 문서에서 `\UseMathForPositioningText` 미정의 오류가 나면(bidi 추정)
+    `preamble:` 에 `\providecommand\UseMathForPositioningText{}` 를 넣는다.
+- **ndhmd2html**: 같은 인식 규칙으로 `<span class="rtl" lang="he" dir="rtl">` 를 낸다.
+- **ndhmd2html 버그 수정**: 인라인 각주 `^[...]` 나 그림 캡션 안의 코드 스팬·수식이 깨진
+  표지 문자로 나가던 문제(따로 보관하는 HTML 이 바깥 복원을 받지 못했다).
+
 ## ndhmd2html.py 0.2.0, ndhmd4tex.py 0.20.6 그대로
 
 - **딸림 스타일시트 `<출력이름>_simple.css`.** 변환할 때 출력 파일 옆에 만들고 HTML 에서

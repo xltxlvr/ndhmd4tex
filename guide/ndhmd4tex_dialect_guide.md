@@ -1045,6 +1045,77 @@ tocloft:
 
 ---
 
+### 2.4. `RTLtypeset` — 오른쪽에서 왼쪽으로 쓰는 문자
+
+한국어(또는 영어) 본문에 히브리어·아랍어·시리아어 낱말이나 구절이 섞이는 경우를
+다룬다(0.21.0). 문제는 둘이다. 한글·라틴 글꼴에는 그 글리프가 없어서 글꼴을 바꿔야
+하고, 낱말이 둘 이상이면 구간 전체를 오른쪽에서 왼쪽으로 놓아야 한다(낱말 하나는
+글꼴만 바꿔도 바르게 나오지만 여러 낱말은 순서가 뒤집힌다).
+
+변환기는 RTL 구간을 찾아 한 덩어리로 감싸고, 그 명령에 필요한 줄을 **프리앰블 맨
+끝에** 넣는다. 원고에 RTL 구간이 하나도 없으면 아무것도 하지 않으므로, 이 키를
+쓰지 않는 문서의 출력은 달라지지 않는다. 키가 없을 때의 기본값은 자동 인식 +
+polyglossia + FreeSerif 다.
+
+```yaml
+RTLtypeset: polyglossia                  # 방식만 적는 짧은 꼴
+RTLtypeset: "babel, markup={RL:%s}"      # 쉼표로 여러 개
+RTLtypeset:                              # 풀어 쓴 꼴
+  method: polyglossia
+  detect: auto
+  font: FreeSerif
+  hebrew: {font: "Frank Ruehl CLM"}
+  arabic: {font: Amiri, lang: persian}
+```
+
+| 키 | 값 | 뜻 |
+|---|---|---|
+| `method` | `polyglossia`(기본) / `babel` / `primitive` / `custom` / `none` | 무엇으로 감쌀지 |
+| `detect` | `auto`(기본) / `markup` | RTL 구간을 어떻게 알아볼지 |
+| `markup` | `"{RL:%s}"` | `detect: markup`일 때 원고에서 쓰는 표기. `%s` 자리가 내용 |
+| `font` | `FreeSerif` | 모든 RTL 문자의 기본 글꼴 |
+| `hebrew` / `arabic` / `syriac` | `{font: …, lang: …}` | 문자별 글꼴과 언어 이름 |
+| `template` | `'\RL{%(text)s}'` | `method: custom`의 명령. `%(lang)s`도 쓸 수 있다 |
+
+**인식.** `auto`는 문자 범위로 찾는다. RTL 글자로 시작해 RTL 글자로 끝나는 구간을
+한 덩어리로 잡고, 사이의 공백·숫자·기본 구두점(`. , ; : ! ? / -`)은 포함한다.
+구간 바로 뒤의 숫자도 포함하고(유니코드 양방향 규칙에서 그 숫자는 구간의 왼쪽 끝에
+놓인다) 앞의 숫자는 포함하지 않는다. 괄호와 따옴표는 구간을 끊는다. `markup`은
+표기한 것만 감싼다 — 라틴 글자나 괄호까지 한 구간에 넣고 싶을 때 쓴다. 표기하지
+않은 RTL 글자는 그대로 나가므로 글꼴이 없으면 찍히지 않는다. 코드 스팬·수식·
+`\매크로{…}` 안은 어느 쪽이든 건드리지 않으므로 `\texthebrew{…}`처럼 손으로 감싼
+것은 다시 감싸지 않는다. 편집기가 끼워 넣는 방향 제어 문자(LRM, RLM 등)는 지운다.
+
+**방식.** 히브리 문자를 예로 든다(아랍은 `arabic`, 시리아는 `syriac`).
+
+| `method` | 본문에 나가는 것 | 프리앰블에 넣는 것 |
+|---|---|---|
+| `polyglossia` | `\texthebrew{…}` | `\usepackage{polyglossia}`, `\setotherlanguage{hebrew}`, `\hebrewfont` 정의 |
+| `babel` | `\foreignlanguage{hebrew}{…}` | babel(`bidi=default`, LuaTeX은 `bidi=basic`), `\babelprovide[import]{hebrew}`, `\babelfont[hebrew]{rm}{…}` |
+| `primitive` | `\ndhRTL{\hebrewfont}{…}` | 패키지 없이 `\beginR…\endR`(XeTeX) / `\textdir TRT`(LuaTeX)로 만든 `\ndhRTL`, `\hebrewfont` 정의 |
+| `custom` | `template` 그대로 | 없음. 프리앰블은 직접 쓴다 |
+| `none` | 감싸지 않는다 | 없음 |
+
+- **직접 선언한 것은 건드리지 않는다**(0.21.1). `preamble:`에서 polyglossia나 babel을
+  이미 불렀으면 다시 부르지 않고, 그 언어를 이미 선언했으면(`\setotherlanguage{hebrew}`,
+  `\babelprovide{hebrew}`) 언어 선언과 글꼴 지정을 건너뛴다. `\hebrewfont`를 이미
+  정의했으면 그것을 쓴다. 판단은 TeX 쪽 조건문으로 하므로 클래스나 다른 패키지가 부른
+  경우에도 맞다. babel을 직접 부를 때는 `bidi=` 옵션을 스스로 줘야 한다.
+- `polyglossia`는 XeTeX에서 `bidi` 패키지를 불러온다. `bidi`는 다른 패키지를 많이
+  고치므로 늦게 불러야 하고, 그래서 이 줄들을 프리앰블 맨 끝에 둔다. 클래스나 다른
+  패키지와 부딪히면 `primitive`로 바꿔 본다 — 낱말·구절 인용에는 그것으로 충분하다.
+- 문단 전체가 RTL이면 polyglossia의 환경을 그대로 쓴다: `:::{hebrew}` … `:::`.
+- `--body-only`로 조각만 낼 때는 필요한 프리앰블 줄을 알림으로 보여 준다.
+- 코드 스팬 안의 RTL 글자는 감싸지 않는다(고정폭 글꼴에 글리프가 있어야 보인다).
+  `title:`·`author:`의 RTL 글자도 감싸지 않으니 필요하면 직접 `\texthebrew{…}`로 쓴다.
+- **확인한 범위**: `polyglossia`(기본값)는 oblivoir 클래스에서 XeTeX와 LuaTeX 양쪽으로
+  인라인 RTL 구간이 바르게 조판되는 것을 확인했다. `primitive`와 `babel`은 XeTeX +
+  fontspec(article)에서 확인했고, 이 둘의 LuaTeX 쪽과 oblivoir 조합은 확인하지 않았다.
+- `\DocumentMetadata`가 없는 문서에서 polyglossia 방식이
+  `\UseMathForPositioningText`가 정의되지 않았다는 오류를 내면(bidi 쪽으로 추정)
+  `preamble:`에 `\providecommand\UseMathForPositioningText{}`를 넣는다.
+  `\DocumentMetadata`를 선언한 문서에서는 나지 않는다.
+
 ## 3. 헤딩
 
 ```markdown

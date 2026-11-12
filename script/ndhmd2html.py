@@ -41,6 +41,9 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
 - `"따옴표"` 는 유니코드 따옴표로, `---` `--` 는 — –, `...` 는 …, `~` 는 줄바꿈
   없는 공백으로 바꾼다. mapping 의 `quotes` `tilde` `wavedash` `linecomment`
   `description_syntax` `refcite` `notes` `extra_inline` 은 그대로 따른다.
+- 히브리·아랍·시리아 문자 구간은 `<span class="rtl" lang="he" dir="rtl">` 로 감싼다.
+  무엇을 구간으로 볼지는 front matter 의 `RTLtypeset` (detect: auto | markup)을
+  ndhmd4tex 과 똑같이 따른다. `RTLtypeset: none` 이면 감싸지 않는다.
 - 본문에 직접 쓴 `<`, `>`, `&` 는 글자로 나간다. HTML 을 그대로 넣으려면
   `` `<br />`{=html} `` 처럼 쓴다(ndhmd4tex 은 이 스팬을 버린다).
 - 모르는 LaTeX 매크로 `\이름{인자}` 는 `<span class="tex-이름">인자</span>` 가 된다.
@@ -79,7 +82,7 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
   hr.asterism                            li > span.item-label
   sup.fnref > a   section.footnotes > div.footnote.fn-종류 > sup.fn-mark, a.fn-back
   span.sidenote.note-종류 (sidepar, sidebar)
-  a.ref.ref-종류      span.label         span.index[data-index]
+  a.ref.ref-종류      span.label         span.index[data-index]   span.rtl
   em.dotemph   span.smallcaps   span.texlogo   span.tex-매크로이름
 """
 
@@ -100,13 +103,13 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
-          "_comment_spans", "_parse_note_tag", "JOIN_BR")
+          "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
-    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.20.6 이상이 필요합니다.\n"
+    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.21.0 이상이 필요합니다.\n"
           "  없는 것: %s" % (getattr(nd, "__version__", "?"), ", ".join(_missing)), file=sys.stderr)
     sys.exit(1)
 
@@ -221,6 +224,8 @@ class Ctx:
         self.refcite_raw_re = nd.build_refcite_re(cfg, with_rawopt=True)
         gp = meta.get("graphicspath") or []
         self.graphicspath = [gp] if isinstance(gp, str) else list(gp)
+        self.rtl = nd.resolve_rtl(meta)       # RTLtypeset: none 이면 None
+        self.locals = []                      # 진행 중인 inline() 들의 Protector
 
     def warn(self, msg):
         if msg not in self._warned:
@@ -246,6 +251,16 @@ class Ctx:
 
     def inl(self, text):
         return inline(text, self)
+
+    def full(self, html):
+        """바깥 inline() 들이 보호해 둔 조각까지 모두 되돌린다.
+
+        각주 본문이나 그림 캡션처럼 '제자리에 돌려주지 않고 따로 보관하는' HTML 은
+        바깥 호출이 끝날 때의 복원을 받지 못한다. 보관하기 전에 여기서 되돌려야
+        코드 스팬·수식·RTL 구간이 자리표시자로 남지 않는다."""
+        for loc in reversed(self.locals):
+            html = loc.restore(html)
+        return html
 
 
 # --------------------------------------------------------------------------
@@ -544,7 +559,7 @@ def _figure(caption_raw, path, attrs, ctx):
             css = _len_css(v) if k.strip() in ("width", "height") else None
             if css:
                 styles.append(f"{k.strip()}: {css};")
-    cap_html = ctx.inl(cap_src) if cap_src else ""
+    cap_html = ctx.full(ctx.inl(cap_src)) if cap_src else ""
     img = '<img src="%s" alt="%s"' % (esc_attr(_img_src(path, ctx)), attr_text(cap_html))
     if styles:
         img += ' style="%s"' % " ".join(styles)
@@ -592,7 +607,7 @@ def _note(text_, tag_raw, ctx):
             leftover = esc("{" + tag_raw + "}")
         spec = {"kind": "default", "sym": False, "symval": None, "opt": None}
     kind = spec["kind"]
-    body = ctx.inl(text_)
+    body = ctx.full(ctx.inl(text_))
     if kind in ("sidepar", "sidebar"):
         return '<span class="sidenote note-%s" role="note">%s</span>%s' % (kind, body, leftover)
     ctx.notes.append({"kind": kind, "body": body, "sym": spec["sym"],
@@ -625,6 +640,10 @@ def _refcite(prefix, label, ctx):
     return tok("ref", kind, xid(label), esc(label))
 
 
+_LANG_CODE = {"hebrew": "he", "arabic": "ar", "syriac": "syr", "persian": "fa", "farsi": "fa",
+              "urdu": "ur", "yiddish": "yi", "kurdish": "ku", "pashto": "ps", "sindhi": "sd",
+              "uyghur": "ug"}
+
 _INLINE_HTML = {
     "bold_italic": "<strong><em>%s</em></strong>", "bold": "<strong>%s</strong>",
     "italic": "<em>%s</em>", "strike": "<del>%s</del>",
@@ -645,8 +664,16 @@ def _wavedash(ctx):
 
 
 def inline(text, ctx):
-    cfg = ctx.cfg
     local = nd.Protector()
+    ctx.locals.append(local)
+    try:
+        return _inline(text, ctx, local)
+    finally:
+        ctx.locals.pop()
+
+
+def _inline(text, ctx, local):
+    cfg = ctx.cfg
 
     def P(html):
         return local.protect(html)
@@ -663,6 +690,11 @@ def inline(text, ctx):
     text = nd.INLINE_MATH_RE.sub(do_math, text)
     text = nd._VERB_SPAN_RE.sub(lambda m: P("<code>%s</code>" % esc(m.group(2))), text)
     text = ctx.macro_re.sub(lambda m: P(_macro(m.group(0), ctx)), text)
+    if ctx.rtl:
+        # RTL 구간. 브라우저가 방향을 알아서 처리하므로 언어와 방향만 표시한다.
+        text = nd.rtl_wrap(text, ctx.rtl, lambda script, inner: P(
+            '<span class="rtl" lang="%s" dir="rtl">%s</span>'
+            % (_LANG_CODE.get(ctx.rtl["langs"][script], _LANG_CODE[script]), esc(inner))))
     text = nd.INLINE_LABEL_RE.sub(lambda m: P(_anchor(m.group(1), ctx)), text)
 
     def do_figure_ref(m):
@@ -1698,6 +1730,7 @@ a.ref-cref { }                          /* [C:라벨] */
 .ref-undefined { color: #c00; }         /* 정의되지 않은 라벨 */
 span.label { }                          /* {#id} 가 놓인 자리(보이지 않는다) */
 span.index { }                          /* [[색인어]] */
+span.rtl { }                            /* 히브리·아랍 문자 구간 (lang, dir="rtl" 이 붙는다) */
 
 /* ── 글자 꾸밈 ────────────────────────────────────────── */
 em.dotemph {                            /* ^^방점^^ */
