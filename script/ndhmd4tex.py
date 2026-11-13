@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.21.1"
+__version__ = "0.21.3"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3766,6 +3766,8 @@ def process_inline(text, cfg, pr: Protector):
     if rtl:
         def _rtl_tex(script, inner):
             cfg["_rtl_used"].add(script)
+            if cfg.get("_rtl_ambient") == script:
+                return local.protect(inner)      # RTL 블록 안: 이미 그 언어다
             return local.protect(rtl["template"] % {"lang": rtl["langs"][script], "text": inner})
         text = rtl_wrap(text, rtl, _rtl_tex)
 
@@ -4806,6 +4808,32 @@ def render_frame(lines, cfg, pr):
 
 
 def render_environment(lines, cfg, pr):
+    """환경 하나를 그린다. RTL 블록(`:::{hebrew}` 등)이면 안쪽을 그리는 동안
+    "바탕이 그 언어"임을 표시해 구간을 다시 감싸지 않게 한다."""
+    m = ENV_OPEN_RE.match(lines[0])
+    name = m.group(1) if m else None
+    script = _rtl_block_script(name, cfg) if name else None
+    if not script:
+        return _render_environment(lines, cfg, pr)
+    cfg["_rtl_used"].add(script)          # 감싼 구간이 없어도 언어·글꼴 선언은 필요하다
+    prev = cfg.get("_rtl_ambient")
+    cfg["_rtl_ambient"] = script
+    try:
+        out = _render_environment(lines, cfg, pr)
+    finally:
+        cfg["_rtl_ambient"] = prev
+    if name not in cfg["environments"]:   # mapping 에 직접 정의한 환경이면 그 정의를 따른다
+        begin, end = _rtl_block_delims(script, cfg)
+        old_b, old_e = rf"\begin{{{name}}}", rf"\end{{{name}}}"
+        # 이름이 달라지는 경우: babel 의 otherlanguage, polyglossia 의 arabic -> Arabic
+        if begin != old_b and out.startswith(old_b) and old_e in out:
+            out = begin + out[len(old_b):]
+            k = out.rfind(old_e)
+            out = out[:k] + end + out[k + len(old_e):]
+    return out
+
+
+def _render_environment(lines, cfg, pr):
     open_m = ENV_OPEN_RE.match(lines[0])
     name, attr_str = open_m.group(1), open_m.group(2)
     attrs = parse_attrs(attr_str)
@@ -5698,6 +5726,19 @@ def render_paragraph(lines, cfg, pr):
                 joined += "\n"
             else:
                 joined += r" \\ " if hb else " "
+    rtl = cfg.get("_rtl")
+    if (rtl and rtl["detect"] == "auto" and rtl["method"] in _RTL_BLOCK_METHODS
+            and not cfg.get("_rtl_ambient")):
+        script = rtl_only_script(joined)
+        if script:
+            # RTL 글자만 있는 독립 문단: 인라인 구간이 아니라 RTL 문단으로 낸다.
+            begin, end = _rtl_block_delims(script, cfg)
+            cfg["_rtl_ambient"] = script
+            try:
+                body = process_inline(joined, cfg, pr)
+            finally:
+                cfg["_rtl_ambient"] = None
+            return begin + "\n" + body + "\n" + end
     return process_inline(joined, cfg, pr)
 
 
@@ -6670,6 +6711,70 @@ def _rtl_setup(cfg, meta):
     """convert()/generate_syncinfo() 가 본문을 그리기 전에 부른다."""
     cfg["_rtl"] = resolve_rtl(meta)
     cfg["_rtl_used"] = set()
+    cfg["_rtl_ambient"] = None
+
+
+# --- RTL 블록 -------------------------------------------------------------
+#
+# 인라인 구간(\texthebrew{...})과 문단 단위(\begin{hebrew})는 다른 것이다.
+# 인라인은 LTR 문단 속의 한 토막이고, 블록은 문단 자체가 오른쪽에서 시작한다.
+# 블록 안은 이미 그 언어·글꼴·방향이므로 구간을 다시 감싸지 않는다.
+#
+# 블록이 되는 것은 두 가지다.
+#   (1) `:::{hebrew}` 처럼 RTL 언어 이름을 가진 환경 — 안에 다른 환경(verse 등)이
+#       겹쳐 있어도 그 안쪽까지 "바탕이 히브리어"다.
+#   (2) RTL 글자만 있는 독립 문단(detect: auto 일 때) — 한글·라틴 글자가 하나도
+#       없어야 한다. "첫 글자가 RTL 이면" 이라는 유니코드 규칙은 쓰지 않는다:
+#       히브리어 낱말로 시작하는 한국어 문장을 RTL 문단으로 오인하기 때문이다.
+# polyglossia 와 babel 에서만 한다. primitive 에는 문단 단위 RTL 이 없으므로
+# 예전처럼 둔다(환경은 이름 그대로 나가고 구간은 인라인으로 감싼다).
+# 블록 안의 LTR 구간(한글·라틴)은 자동으로 감싸지 않는다. 필요하면 원고에서
+# 직접 \LR{...} 로 감싼다 — 매크로이므로 그대로 통과한다.
+
+_RTL_BLOCK_METHODS = ("polyglossia", "babel")
+# polyglossia 의 환경 이름이 언어 이름과 다른 경우. \arabic 은 LaTeX 의 카운터
+# 출력 명령(\arabic{page})이라 polyglossia 는 아랍어 환경을 `Arabic` 으로 둔다
+# (gloss-arabic.ldf 의 envname=Arabic). \begin{arabic} 은 그 카운터 명령을 불러
+# "Missing number" 류의 오류로 죽는다. 인라인 \textarabic{} 은 문제가 없다.
+_POLYGLOSSIA_ENVNAME = {"arabic": "Arabic"}
+
+
+def rtl_only_script(text):
+    """text 에 RTL 글자가 있고 그 밖의 '글자'(한글·라틴 등)가 하나도 없으면 그 문자
+    이름을, 아니면 None 을 돌려준다. 숫자·공백·구두점·마크업 기호는 글자가 아니다.
+    보호 자리표시자가 섞여 있으면(코드·수식·매크로가 있다는 뜻) None."""
+    first = _RTL_CHAR_RE.search(text)
+    if not first:
+        return None
+    for ch in text:
+        if "\ue000" <= ch <= "\uf8ff":
+            return None
+        if unicodedata.category(ch)[0] == "L" and rtl_script(ch) is None:
+            return None
+    return rtl_script(first.group(0))
+
+
+def _rtl_block_script(name, cfg):
+    """환경 이름이 RTL 블록(= 쓰고 있는 RTL 언어 이름)이면 그 문자 이름."""
+    rtl = cfg.get("_rtl")
+    if not rtl:
+        return None
+    for script, lang in rtl["langs"].items():
+        if name == lang or name == _POLYGLOSSIA_ENVNAME.get(lang):
+            if rtl["method"] in _RTL_BLOCK_METHODS:
+                return script
+            _rtl_warn(f"RTLtypeset 의 method: {rtl['method']} 에는 RTL 블록이 없습니다. "
+                      f":::{{{name}}} 은(는) 일반 환경으로 나갑니다.")
+    return None
+
+
+def _rtl_block_delims(script, cfg):
+    rtl = cfg["_rtl"]
+    lang = rtl["langs"][script]
+    if rtl["method"] == "babel":
+        return rf"\begin{{otherlanguage}}{{{lang}}}", r"\end{otherlanguage}"
+    env = _POLYGLOSSIA_ENVNAME.get(lang, lang)
+    return rf"\begin{{{env}}}", rf"\end{{{env}}}"
 
 
 def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):

@@ -44,6 +44,8 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
 - 히브리·아랍·시리아 문자 구간은 `<span class="rtl" lang="he" dir="rtl">` 로 감싼다.
   무엇을 구간으로 볼지는 front matter 의 `RTLtypeset` (detect: auto | markup)을
   ndhmd4tex 과 똑같이 따른다. `RTLtypeset: none` 이면 감싸지 않는다.
+  `:::{hebrew}` 같은 RTL 블록은 `<div class="hebrew rtl" lang="he" dir="rtl">`, RTL 글자만
+  있는 독립 문단은 `<p lang="he" dir="rtl">` 가 되고 그 안의 구간은 다시 감싸지 않는다.
 - 본문에 직접 쓴 `<`, `>`, `&` 는 글자로 나간다. HTML 을 그대로 넣으려면
   `` `<br />`{=html} `` 처럼 쓴다(ndhmd4tex 은 이 스팬을 버린다).
 - 모르는 LaTeX 매크로 `\이름{인자}` 는 `<span class="tex-이름">인자</span>` 가 된다.
@@ -103,13 +105,13 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.3.0"
+__version__ = "0.3.2"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
-          "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap")
+          "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
-    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.21.0 이상이 필요합니다.\n"
+    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.21.2 이상이 필요합니다.\n"
           "  없는 것: %s" % (getattr(nd, "__version__", "?"), ", ".join(_missing)), file=sys.stderr)
     sys.exit(1)
 
@@ -226,6 +228,7 @@ class Ctx:
         self.graphicspath = [gp] if isinstance(gp, str) else list(gp)
         self.rtl = nd.resolve_rtl(meta)       # RTLtypeset: none 이면 None
         self.locals = []                      # 진행 중인 inline() 들의 Protector
+        self.rtl_ambient = None               # RTL 블록 안이면 그 문자 이름
 
     def warn(self, msg):
         if msg not in self._warned:
@@ -644,6 +647,10 @@ _LANG_CODE = {"hebrew": "he", "arabic": "ar", "syriac": "syr", "persian": "fa", 
               "urdu": "ur", "yiddish": "yi", "kurdish": "ku", "pashto": "ps", "sindhi": "sd",
               "uyghur": "ug"}
 
+def _rtl_code(script, ctx):
+    return _LANG_CODE.get(ctx.rtl["langs"][script], _LANG_CODE[script])
+
+
 _INLINE_HTML = {
     "bold_italic": "<strong><em>%s</em></strong>", "bold": "<strong>%s</strong>",
     "italic": "<em>%s</em>", "strike": "<del>%s</del>",
@@ -692,9 +699,10 @@ def _inline(text, ctx, local):
     text = ctx.macro_re.sub(lambda m: P(_macro(m.group(0), ctx)), text)
     if ctx.rtl:
         # RTL 구간. 브라우저가 방향을 알아서 처리하므로 언어와 방향만 표시한다.
+        # RTL 블록 안에서는 이미 그 언어·방향이므로 감싸지 않는다.
         text = nd.rtl_wrap(text, ctx.rtl, lambda script, inner: P(
-            '<span class="rtl" lang="%s" dir="rtl">%s</span>'
-            % (_LANG_CODE.get(ctx.rtl["langs"][script], _LANG_CODE[script]), esc(inner))))
+            esc(inner) if script == ctx.rtl_ambient else
+            '<span class="rtl" lang="%s" dir="rtl">%s</span>' % (_rtl_code(script, ctx), esc(inner))))
     text = nd.INLINE_LABEL_RE.sub(lambda m: P(_anchor(m.group(1), ctx)), text)
 
     def do_figure_ref(m):
@@ -977,13 +985,25 @@ def blocks(lines, ctx):
         b, mark = bl[i]
         k = kinds[i]
         if k == "para":
-            html = ctx.inl(_para_text(b))
+            ptext = _para_text(b)
+            rtl_p = None
+            if (ctx.rtl and ctx.rtl["detect"] == "auto" and not ctx.rtl_ambient
+                    and mark not in nd._JOINS):
+                rtl_p = nd.rtl_only_script(ptext)      # RTL 글자만 있는 독립 문단
+            ctx.rtl_ambient = rtl_p or ctx.rtl_ambient
+            try:
+                html = ctx.inl(ptext)
+            finally:
+                if rtl_p:
+                    ctx.rtl_ambient = None
             # `||` 로 이은 두 평문단은 한 문단이다. 빈 줄 뒤의 `||` 는 줄만 바꾼다.
             while mark in nd._JOINS and i + 1 < n and kinds[i + 1] == "para":
                 html += ("<br />\n" if mark == nd.JOIN_BR else "") + ctx.inl(_para_text(bl[i + 1][0]))
                 i += 1
                 mark = bl[i][1]
             piece = wrap_p(html, ctx)
+            if rtl_p:
+                piece = piece.replace("<p>", '<p lang="%s" dir="rtl">' % _rtl_code(rtl_p, ctx))
         elif k == "env":
             piece = environment(b, ctx)
         elif k == "frame":
@@ -1270,6 +1290,19 @@ def environment(lines, ctx):
     m = nd.ENV_OPEN_RE.match(lines[0])
     name, attrs = m.group(1), nd.parse_attrs(m.group(2))
     inner = lines[1:-1] if nd.ENV_CLOSE_RE.match(lines[-1]) else lines[1:]
+    if ctx.rtl and name not in ctx.cfg["environments"]:
+        # RTL 블록: :::{hebrew} 처럼 RTL 언어 이름을 가진 환경
+        for script, lang in ctx.rtl["langs"].items():
+            if name == lang or name == getattr(nd, "_POLYGLOSSIA_ENVNAME", {}).get(lang):
+                prev, ctx.rtl_ambient = ctx.rtl_ambient, script
+                try:
+                    body = blocks(inner, ctx)
+                finally:
+                    ctx.rtl_ambient = prev
+                label = _unbrace(attrs.get("label"))
+                idattr = ' id="%s"' % esc_attr(ctx.label(label, "env", *ctx.cur_sec)) if label else ""
+                return ('<div class="%s rtl" lang="%s" dir="rtl"%s>\n%s\n</div>'
+                        % (esc_attr(lang), _rtl_code(script, ctx), idattr, body))
     tmpl = ctx.cfg["environments"].get(name) or {}
     mode = str(tmpl.get("lines", "")).lower()
     if mode == "raw":
@@ -1731,6 +1764,8 @@ a.ref-cref { }                          /* [C:라벨] */
 span.label { }                          /* {#id} 가 놓인 자리(보이지 않는다) */
 span.index { }                          /* [[색인어]] */
 span.rtl { }                            /* 히브리·아랍 문자 구간 (lang, dir="rtl" 이 붙는다) */
+div.rtl { }                             /* :::{hebrew} 같은 RTL 블록 */
+p[dir="rtl"] { }                        /* RTL 글자만 있는 독립 문단 */
 
 /* ── 글자 꾸밈 ────────────────────────────────────────── */
 em.dotemph {                            /* ^^방점^^ */

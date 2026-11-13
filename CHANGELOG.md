@@ -1,5 +1,30 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.21.3, ndhmd2html.py 0.3.2
+
+- **버그 수정: polyglossia 의 아랍어 RTL 블록이 `\begin{arabic}` 으로 나가 컴파일이 실패했다.**
+  `\arabic` 은 LaTeX 의 카운터 출력 명령이라 polyglossia 는 아랍어 환경 이름을 `Arabic` 으로
+  둔다(gloss-arabic.ldf 의 `envname=Arabic`). 이제 `\begin{Arabic}` 으로 내며, 원고에서는
+  `:::{arabic}` 과 `:::{Arabic}` 을 모두 받는다. 이름이 다른 언어는 polyglossia 전체에서
+  아랍어 하나뿐임을 gloss 파일에서 확인했다. babel 쪽(`otherlanguage`)은 영향이 없다.
+- ndhmd2html 도 `:::{Arabic}` 을 RTL 블록으로 알아본다(class 는 `arabic rtl` 로 통일).
+
+## ndhmd4tex.py 0.21.2, ndhmd2html.py 0.3.1
+
+- **RTL 블록과 인라인 구간을 구분한다.** 0.21.1 까지는 `:::{hebrew}` 안에서도 줄마다
+  `\texthebrew{}` 를 다시 씌웠다. 이제
+  - `:::{hebrew}` 처럼 RTL 언어 이름을 가진 환경은 RTL 블록이고, 안쪽(겹친 `verse` 등 포함)의
+    그 문자는 감싸지 않는다. 감싼 구간이 없어도 프리앰블의 언어·글꼴 선언은 들어간다.
+  - RTL 글자만 있는 독립 문단(`detect: auto`)은 인라인이 아니라 RTL 블록으로 낸다. 한글·라틴
+    글자가 하나라도 있으면 보통 문단이다.
+  - 블록은 polyglossia 에서 `\begin{hebrew}`, babel 에서 `\begin{otherlanguage}{hebrew}`.
+    primitive 는 예전대로 둔다(블록 없음, 경고).
+  - 블록 안의 LTR 구간은 자동으로 감싸지 않는다. 필요하면 원고에서 `\LR{...}` 로 감싼다.
+  - babel 쪽은 XeTeX 로 조판해 운문과 여러 줄 문단이 오른쪽 기준으로 놓이는 것을 확인했다.
+    polyglossia 쪽은 개발 환경에서 조판하지 못했다. `--syncinfo` 줄 대응은 확인했다.
+- **ndhmd2html**: RTL 블록은 `<div class="hebrew rtl" lang="he" dir="rtl">`, RTL 문단은
+  `<p lang="he" dir="rtl">` 로 내고 그 안의 구간은 다시 감싸지 않는다.
+
 ## ndhmd4tex.py 0.21.1, ndhmd2html.py 0.3.0 그대로
 
 - `sample_mapping.yaml`: front matter 전용 키 목록에 `RTLtypeset`, `mmdoption`,
