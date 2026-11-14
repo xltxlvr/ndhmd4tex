@@ -698,7 +698,8 @@ showexam:
 #              %(src)s 블록 내용 파일, %(base)s 확장자 없는 출력 경로,
 #              %(out)s 출력 파일, %(dir)s 캐시 폴더
 #   ext        블록 내용을 저장할 확장자 (기본 txt)
-#   result     pdf png svg jpg eps | text markdown tex (기본 pdf)
+#   result     pdf png svg jpg eps | text markdown tex math (기본 pdf)
+#              math 는 출력(숫자·식)을 \ensuremath{...} 로 감싼다
 #   output     도구가 결과를 두는 곳 (기본 %(base)s.<result>, 글 결과는 표준 출력)
 #   crop       true 면 PDF 결과에 pdfcrop
 #   timeout    제한 시간(초, 기본 60)

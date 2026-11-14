@@ -1104,7 +1104,23 @@ RTLtypeset:                              # 풀어 쓴 꼴
 - `polyglossia`는 XeTeX에서 `bidi` 패키지를 불러온다. `bidi`는 다른 패키지를 많이
   고치므로 늦게 불러야 하고, 그래서 이 줄들을 프리앰블 맨 끝에 둔다. 클래스나 다른
   패키지와 부딪히면 `primitive`로 바꿔 본다 — 낱말·구절 인용에는 그것으로 충분하다.
-- 문단 전체가 RTL이면 polyglossia의 환경을 그대로 쓴다: `:::{hebrew}` … `:::`.
+- **RTL 블록과 인라인 구간은 다르다**(0.21.2). 인라인 구간은 LTR 문단 속의 한 토막이고,
+  RTL 블록은 문단 자체가 오른쪽에서 시작한다. 블록이 되는 것은 두 가지다.
+  - `:::{hebrew}` … `:::`처럼 RTL 언어 이름(`hebrew`, `arabic`, `syriac`, 또는 `lang:`으로
+    바꾼 이름)을 가진 환경. 안에 `:::{verse}` 같은 환경이 겹쳐 있어도 된다.
+  - RTL 글자만 있는 독립 문단(`detect: auto`일 때). 한글·라틴 글자가 하나라도 있으면
+    보통 문단이고 그 안의 RTL 구간만 인라인으로 감싼다 — 히브리어 낱말로 시작하는
+    한국어 문장을 RTL 문단으로 오인하지 않기 위해서다.
+- 블록은 `polyglossia`에서 `\begin{hebrew}`, `babel`에서 `\begin{otherlanguage}{hebrew}`로
+  나가고, **블록 안의 그 문자는 다시 감싸지 않는다.** `primitive`에는 문단 단위 RTL이
+  없어서 블록을 만들지 않는다(환경은 이름 그대로 나가고 경고한다. 구간은 인라인으로 감싼다).
+- **아랍어 블록은 polyglossia에서 `\begin{Arabic}`이다**(대문자 A, 0.21.3). `\arabic`은
+  LaTeX의 카운터 출력 명령이라 polyglossia가 아랍어 환경만 이름을 달리 둔다.
+  `\begin{arabic}`은 그 카운터 명령을 불러 오류로 멈춘다. 원고에는 `:::{arabic}`이나
+  `:::{Arabic}` 어느 쪽으로 써도 변환기가 맞는 이름으로 낸다. raw LaTeX으로 직접 쓸
+  때는 `\begin{Arabic}`으로 써야 한다. 인라인 `\textarabic{…}`은 그대로다.
+- RTL 블록 안에 섞인 한글·라틴 구간은 자동으로 감싸지 않는다. 순서가 뒤집혀 보이면
+  원고에서 직접 `\LR{…}`로 감싼다(polyglossia가 부르는 bidi/luabidi의 명령).
 - `--body-only`로 조각만 낼 때는 필요한 프리앰블 줄을 알림으로 보여 준다.
 - 코드 스팬 안의 RTL 글자는 감싸지 않는다(고정폭 글꼴에 글리프가 있어야 보인다).
   `title:`·`author:`의 RTL 글자도 감싸지 않으니 필요하면 직접 `\texthebrew{…}`로 쓴다.
@@ -2050,6 +2066,87 @@ showexam:
   테두리가 필요하면 `minted`/`lstlisting`의 `frame=` 옵션을 쓰면 된다.
 
 ---
+
+### 10.3. `external` — 외부 도구의 결과를 받아오기
+
+코드 블록의 내용을 외부 프로그램에 넘겨 돌리고, 그 결과를 그림이나 글로 그 자리에
+받아온다(0.22.0). 악보(lilypond), 그래프(graphviz), 계산 결과 같은 것에 쓴다.
+
+````
+```external tool=lilypond, caption="주제 선율", label=fig:theme, width=0.8\linewidth
+\relative c' { c4 d e f }
+```
+````
+
+**도구는 mapping에 등록한 것만 쓸 수 있다.** 펜스에는 도구의 이름만 쓰고, 실제 명령은
+mapping의 `external:`에 둔다. 원고에 명령줄을 쓰게 하면 원고를 변환하는 것만으로 아무
+명령이나 돌게 되기 때문이다.
+
+```yaml
+external:
+  lilypond:
+    run: "lilypond --pdf -dcrop -o %(base)s %(src)s"
+    ext: ly
+    result: pdf
+    output: "%(base)s.cropped.pdf"
+  dot:
+    run: "dot -Tpdf -o %(out)s %(src)s"
+    ext: dot
+  calc:
+    run: "python3 %(src)s"
+    ext: py
+    result: markdown
+```
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `run` | (필수) | 실행할 명령. 셸을 거치지 않고 낱말로 나눠 실행한다 |
+| `ext` | `txt` | 블록 내용을 저장할 파일의 확장자 |
+| `result` | `pdf` | 그림: `pdf` `png` `svg` `jpg` `eps` / 글: `text` `markdown` `tex` `math` |
+| `output` | `%(base)s.<result>` | 도구가 결과 파일을 두는 곳. 글 결과에서 생략하면 표준 출력을 받는다 |
+| `crop` | `false` | `true`면 PDF 결과에 `pdfcrop`을 돌린다 |
+| `timeout` | `60` | 제한 시간(초) |
+| `web`, `web_output` | 없음 | `ndhmd2html`용 그림(PNG)을 만드는 명령과 그 결과 파일 |
+
+명령에 쓸 수 있는 자리는 `%(src)s`(블록 내용을 저장한 파일), `%(base)s`(확장자 없는
+출력 경로), `%(out)s`(출력 파일), `%(dir)s`(캐시 폴더)다. 명령은 원고가 있는 폴더에서
+실행된다.
+
+펜스 줄의 옵션은 `tool`(필수)과 `crop`, `timeout`(도구 정의를 덮어쓴다)이 이 기능의
+것이고, 나머지는 그림 속성으로 넘어간다 — `caption`, `label`, `width`, `height`, `place`
+등 15장의 속성을 그대로 쓴다.
+
+**결과가 놓이는 방식.**
+
+- 그림 결과는 `![캡션](_external/…){속성}`으로 바뀌어 보통 그림과 똑같이 처리된다.
+  캡션이 있으면 번호 붙은 그림이 되고 `[F:라벨]`로 참조할 수 있다.
+- `text`는 출력을 그대로 보이는 블록으로, `markdown`은 이 방언의 원고로 보고 다시
+  변환해서, `tex`는 raw LaTeX으로 넣는다.
+- `math`는 출력을 `\ensuremath{…}`로 감싸 수식 모드로 넣는다(0.22.1). 계산한 숫자나
+  식을 수식 글꼴로 낼 때 쓴다. 출력이 여러 줄이면 한 줄로 잇고, 비어 있으면 오류다.
+  `ndhmd2html`에서는 `\(…\)` 인라인 수식이 된다.
+
+**실행 규칙.**
+
+- **기본은 실행하지 않는다.** `--external` 옵션을 줘야 도구를 돌린다(LaTeX의
+  `--shell-escape`와 같은 약속이다). 옵션 없이 실행이 필요한 블록을 만나면 오류로 멈춘다.
+- 결과는 원고 폴더의 `_external/`에 `도구이름-내용해시` 이름으로 저장한다. 블록 내용이나
+  도구 정의가 바뀌어야 다시 돌린다. **결과가 이미 있으면 `--external` 없이도 그것을
+  쓴다** — 실행할 일이 없기 때문이다. 처음부터 다시 만들려면 `_external/`을 지운다.
+- **실패하면 변환을 멈춘다.** 등록되지 않은 도구, 실행 파일 없음, 0이 아닌 종료 코드,
+  시간 초과, 결과 파일 없음이 모두 오류다. `.tex`는 만들어지지 않는다.
+- 블록마다 프로세스를 따로 띄운다. 블록 사이에 변수나 상태는 이어지지 않는다.
+- 문법을 설명하려고 더 긴 펜스(백틱 4개) 안에 넣은 `external` 예제는 실행하지 않는다.
+  `showexam` 안에 넣으면 원문과 실행 결과가 함께 나온다.
+- `--syncinfo`에서는 결과 전체가 여는 펜스 줄에 대응한다.
+- `--pandoc`, `--mmd` 모드에는 적용되지 않는다.
+
+**`ndhmd2html`.** 같은 규칙과 같은 캐시를 쓴다(`--external`도 같다). 글 결과는 그대로
+들어가고 `tex`만 생략된다. 그림 결과가 PDF면 같은 이름의 PNG를 옆에 만들어 그것을
+쓴다. 만드는 방법은 도구 정의의 `web` 명령이 먼저이고, 없으면 PySide6의 QtPdf,
+`pdftocairo`, `pdftoppm`, `gs` 가운데 쓸 수 있는 것을 차례로 쓴다. 어느 것도 없으면
+오류로 멈춘다. PySide6는 있을 때만 쓰며, 이 스크립트를 PyInstaller로 묶어도 Qt가 딸려
+들어가지 않게 동적으로 부른다.
 
 ## 11. 리스트
 

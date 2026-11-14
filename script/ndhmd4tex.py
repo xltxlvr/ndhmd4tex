@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.22.0"
+__version__ = "0.22.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -2644,7 +2644,8 @@ def render_showexam(src, rendered, opts, cfg):
 # (4) 실패하면(도구 없음, 0 아닌 종료, 시간 초과, 결과 파일 없음) 변환을 멈춘다.
 # (5) 그림 결과는 `![캡션](_external/…){속성}` 한 줄로 바꿔 기존 그림 경로에
 #     태운다. 캡션·라벨·너비·번호·상호참조가 그대로 작동한다. 글 결과는 그
-#     자리에 끼워 넣는다(text: 그대로 보이는 블록, markdown: 다시 변환, tex: raw).
+#     자리에 끼워 넣는다(text: 그대로 보이는 블록, markdown: 다시 변환, tex: raw,
+#     math: 출력을 \ensuremath{...} 로 감싼다 — 계산한 숫자나 식을 수식 글꼴로).
 # (6) 블록마다 프로세스를 따로 띄운다. 블록 사이에 상태는 이어지지 않는다.
 #
 # mapping 의 도구 정의:
@@ -2652,7 +2653,7 @@ def render_showexam(src, rendered, opts, cfg):
 #     lilypond:
 #       run: "lilypond --pdf -dcrop -o %(base)s %(src)s"   # 필수
 #       ext: ly                # 블록 내용을 저장할 파일의 확장자 (기본 txt)
-#       result: pdf            # pdf png svg jpg eps | text markdown tex (기본 pdf)
+#       result: pdf            # pdf png svg jpg eps | text markdown tex math (기본 pdf)
 #       output: "%(base)s.cropped.pdf"   # 도구가 결과를 두는 곳 (기본 %(base)s.<result>)
 #       crop: false            # true 면 PDF 결과에 pdfcrop 을 돌린다
 #       timeout: 60            # 초
@@ -2665,7 +2666,7 @@ def render_showexam(src, rendered, opts, cfg):
 EXTERNAL_CACHE_DIR = "_external"
 _EXT_INFO_RE = re.compile(r"^external\b[ \t]*(.*)$")
 _EXT_FIGURE_RESULTS = ("pdf", "png", "svg", "jpg", "jpeg", "eps")
-_EXT_TEXT_RESULTS = ("text", "markdown", "md", "tex")
+_EXT_TEXT_RESULTS = ("text", "markdown", "md", "tex", "math")
 _EXT_WEB_OK = ("png", "svg", "jpg", "jpeg")
 _EXT_OWN_OPTS = ("tool", "crop", "timeout")
 
@@ -2854,6 +2855,16 @@ def _external_replacement(body, opts, cfg, base_dir, web):
                 attrs.append(f"{k}={v}")
         line = f"![{caption}]({value})" + ("{" + ", ".join(attrs) + "}" if attrs else "")
         return [line]
+    if kind == "math":
+        # 출력(숫자나 식)을 수식 모드로. 여러 줄이면 한 줄로 잇는다.
+        expr = " ".join(value.split())
+        if not expr:
+            raise ExternalError(f"external 도구 '{_unbrace_attr(opts.get('tool'))}': "
+                                f"result: math 인데 출력이 비어 있습니다.")
+        if web:
+            return ["\\(" + expr + "\\)"]        # HTML 쪽: MathJax 가 읽는 인라인 수식
+        # raw 펜스로 넣는다 — 중괄호가 깊게 겹친 식도 매크로 인식 한계에 걸리지 않는다.
+        return ["```tex", "\\ensuremath{" + expr + "}", "```"]
     lines = value.split("\n") if value else []
     if kind == "markdown":
         return lines

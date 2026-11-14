@@ -1,5 +1,11 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.22.1, ndhmd2html.py 0.4.0 그대로
+
+- **`external` 의 결과 종류 `math`.** 도구의 출력(숫자나 식)을 `\ensuremath{...}` 로 감싸 수식
+  모드로 넣는다. 여러 줄은 한 줄로 잇고, 출력이 비어 있으면 오류로 멈춘다. ndhmd2html 에서는
+  `\(...\)` 인라인 수식이 된다.
+
 ## ndhmd4tex.py 0.22.0, ndhmd2html.py 0.4.0
 
 - **```` ```external ```` 블록: 외부 도구의 결과를 그림이나 글로 받아온다.**

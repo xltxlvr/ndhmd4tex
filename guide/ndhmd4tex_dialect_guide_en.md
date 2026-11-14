@@ -1176,8 +1176,30 @@ controls inserted by editors (LRM, RLM, …) are removed.
   packages and must be loaded late; that is why these lines go at the very end
   of the preamble. If it clashes with the class or another package, try
   `primitive` — it is enough for quoting words and phrases.
-- For whole RTL paragraphs use polyglossia's environment directly:
-  `:::{hebrew}` … `:::`.
+- **RTL blocks differ from inline runs** (0.21.2). An inline run is a piece
+  inside an LTR paragraph; an RTL block is a paragraph that itself starts from
+  the right. Two things become a block:
+  - an environment named after an RTL language (`hebrew`, `arabic`, `syriac`,
+    or the name set with `lang:`), as in `:::{hebrew}` … `:::`. Other
+    environments such as `:::{verse}` may be nested inside.
+  - a standalone paragraph made of RTL letters only (with `detect: auto`). If
+    it contains even one Hangul or Latin letter it is an ordinary paragraph and
+    only its RTL runs are wrapped inline — so a Korean sentence that merely
+    begins with a Hebrew word is not mistaken for an RTL paragraph.
+- A block becomes `\begin{hebrew}` with `polyglossia` and
+  `\begin{otherlanguage}{hebrew}` with `babel`, and **letters of that script
+  inside it are not wrapped again.** `primitive` has no paragraph-level RTL, so
+  it makes no blocks (the environment passes through under its own name with a
+  warning, and runs are wrapped inline).
+- **The Arabic block is `\begin{Arabic}` under polyglossia** (capital A,
+  0.21.3). `\arabic` is LaTeX's counter-printing command, so polyglossia gives
+  the Arabic environment a different name; `\begin{arabic}` calls that counter
+  command and stops with an error. In the manuscript write either `:::{arabic}`
+  or `:::{Arabic}` and the converter emits the right name. In raw LaTeX you
+  must write `\begin{Arabic}` yourself. Inline `\textarabic{…}` is unaffected.
+- Hangul or Latin runs inside an RTL block are not wrapped automatically. If
+  their order looks reversed, wrap them yourself with `\LR{…}` (a command of
+  bidi/luabidi, which polyglossia loads).
 - With `--body-only` the required preamble lines are printed as a notice.
 - RTL letters inside code spans are not wrapped (the monospace font must have
   the glyphs). Nor are those in `title:` / `author:`; write `\texthebrew{…}`
@@ -2198,6 +2220,100 @@ a very long line …
   `frame=` option of `minted` or `lstlisting`.
 
 ---
+
+### 10.3. `external` — bringing in the output of an external tool
+
+Hands the content of a code block to an external program and puts the result —
+a figure or text — in its place (0.22.0). Meant for things like music notation
+(lilypond), graphs (graphviz) or computed values.
+
+````
+```external tool=lilypond, caption="Main theme", label=fig:theme, width=0.8\linewidth
+\relative c' { c4 d e f }
+```
+````
+
+**Only tools registered in the mapping can be used.** The fence carries just the
+tool's name; the actual command lives under `external:` in the mapping. If the
+manuscript could carry a command line, merely converting a manuscript would run
+arbitrary commands.
+
+```yaml
+external:
+  lilypond:
+    run: "lilypond --pdf -dcrop -o %(base)s %(src)s"
+    ext: ly
+    result: pdf
+    output: "%(base)s.cropped.pdf"
+  dot:
+    run: "dot -Tpdf -o %(out)s %(src)s"
+    ext: dot
+  calc:
+    run: "python3 %(src)s"
+    ext: py
+    result: markdown
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `run` | (required) | The command. It is split into words and run without a shell |
+| `ext` | `txt` | Extension of the file the block content is saved to |
+| `result` | `pdf` | Figures: `pdf` `png` `svg` `jpg` `eps` / text: `text` `markdown` `tex` `math` |
+| `output` | `%(base)s.<result>` | Where the tool leaves its result. For text results, omit it to capture standard output |
+| `crop` | `false` | `true` runs `pdfcrop` on a PDF result |
+| `timeout` | `60` | Time limit in seconds |
+| `web`, `web_output` | none | Command that makes the image (PNG) for `ndhmd2html`, and its result file |
+
+Placeholders available in commands: `%(src)s` (the file holding the block
+content), `%(base)s` (output path without extension), `%(out)s` (output file),
+`%(dir)s` (cache folder). Commands run in the manuscript's folder.
+
+On the fence line, `tool` (required) plus `crop` and `timeout` (which override
+the tool definition) belong to this feature; everything else is passed on as
+figure attributes — `caption`, `label`, `width`, `height`, `place` and the rest
+of chapter 15.
+
+**How results are placed.**
+
+- A figure result becomes `![caption](_external/…){attributes}` and is handled
+  exactly like an ordinary figure. With a caption it is a numbered figure you
+  can reference with `[F:label]`.
+- `text` goes in as a verbatim block, `markdown` is treated as manuscript text
+  in this dialect and converted again, `tex` goes in as raw LaTeX.
+- `math` wraps the output in `\ensuremath{…}` so it is set in math mode
+  (0.22.1) — for a computed number or expression in the math font. Multi-line
+  output is joined into one line; empty output is an error. In `ndhmd2html` it
+  becomes inline math `\(…\)`.
+
+**Execution rules.**
+
+- **Nothing runs by default.** Tools run only with the `--external` option (the
+  same contract as LaTeX's `--shell-escape`). Meeting a block that needs to run
+  without the option is an error and stops the conversion.
+- Results are stored in `_external/` in the manuscript's folder under the name
+  `tool-contenthash`. A block is rerun only when its content or the tool
+  definition changes. **If the result is already there it is used even without
+  `--external`** — nothing has to run. Delete `_external/` to rebuild from
+  scratch.
+- **A failure stops the conversion.** An unregistered tool, a missing
+  executable, a non-zero exit code, a timeout and a missing result file are all
+  errors. No `.tex` is written.
+- Each block gets its own process. No variables or state carry over between
+  blocks.
+- An `external` example placed inside a longer fence (four backticks) to
+  explain the syntax is not run. Inside `showexam` you get both the source and
+  the executed result.
+- With `--syncinfo` the whole result maps to the opening fence line.
+- It does not apply in `--pandoc` or `--mmd` mode.
+
+**`ndhmd2html`.** Same rules, same cache (and the same `--external`). Text
+results go in as they are; only `tex` is omitted. If a figure result is a PDF,
+a PNG of the same name is made next to it and used instead. The tool's `web`
+command is tried first; failing that, whichever of PySide6's QtPdf,
+`pdftocairo`, `pdftoppm` or `gs` is available, in that order. If none is, the
+conversion stops with an error. PySide6 is used only when present, and it is
+imported dynamically so that bundling this script with PyInstaller does not
+drag Qt in.
 
 ## 11. Lists
 
