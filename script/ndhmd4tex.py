@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.22.2"
+__version__ = "0.22.3"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3743,7 +3743,10 @@ def convert_smart_quotes(text: str, quotes=None, protect=None) -> str:
     "여는" 것으로 인식되지 못하고 둘 다 "닫는" 것으로 오인되므로(둘 다 그 앞
     문자가 공백이 아니기 때문), 여는 문맥 판정에 이 문자들도 포함시킨다.
     """
-    _OPEN_CTX = r"[\s([{*~]"
+    # CJK 전각 여는 괄호 뒤도 여는 자리다: （"인용"） 「"인용"」 《"제목"》 …
+    # （［｛ 〈《「『【〔〖〘〚 ｢
+    _OPEN_CTX = ("[\\s([{*~\uff08\uff3b\uff5b\u3008\u300a\u300c\u300e\u3010"
+                 "\u3014\u3016\u3018\u301a\uff62]")
 
     if quotes is not None:
         # tex 가 아닌 모드. 결과 문자는 protect() 로 보호해서 뒤 단계(굵게·기울임

@@ -1418,7 +1418,8 @@ automatically converts straight quotes (`"`, `'`).
 | Single quote `'` | `` ` `` (one backtick) | `'` (unchanged) | see below |
 
 **How it decides**: only a quote character at the very start of the string,
-or immediately after a space / `(` / `[` / `{` / `*` / `~`, is treated as
+or immediately after a space / `(` / `[` / `{` / `*` / `~` / a CJK full-width
+opening bracket (`（` `［` `｛` `〈` `《` `「` `『` `【` `〔` `〖` `〘` `〚` `｢`, 0.22.3), is treated as
 "opening" and converted first. Every other remaining quote character is
 then treated as "closing" and converted in one pass. **What follows a
 closing quote is never checked.** This matters specifically for Korean
