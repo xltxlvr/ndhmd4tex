@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.21.3"
+__version__ = "0.22.0"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -454,6 +454,9 @@ DEFAULT_CONFIG = {
     # 임의 문자: 2글자(큰따옴표 여닫이만, 작은따옴표는 tex 그대로) 또는 4글자
     # (큰따옴표 여닫이 + 작은따옴표 여닫이). 여러 글자짜리는 같은 길이의 리스트로.
     "quotes": "tex",
+    # ```external 블록이 부를 수 있는 외부 도구들. 비어 있으면 아무것도 못 부른다.
+    # 도구 정의의 꼴은 expand_external() 위의 설명 참고.
+    "external": {},
     # [[표시|색인어]] 색인 문법이 만들어낼 LaTeX. %(text)s 에 표시 텍스트가,
     # %(term)s 에 색인어가 들어간다.
     #
@@ -2620,6 +2623,285 @@ def render_showexam(src, rendered, opts, cfg):
     }
 
 
+# --------------------------------------------------------------------------
+# ```external : 외부 도구를 돌려 그 결과를 그림이나 글로 받아온다
+# --------------------------------------------------------------------------
+#
+#   ```external tool=lilypond, caption="주제 선율", label=fig:theme, width=0.8\linewidth
+#   \relative c' { c4 d e f }
+#   ```
+#
+# 설계에서 지킨 것.
+#
+# (1) 원고가 실행할 수 있는 것은 mapping 의 `external:` 에 등록한 도구뿐이다.
+#     펜스에는 도구 "이름"만 쓴다. 명령줄을 원고에 쓰게 하면 원고를 변환하는
+#     것만으로 아무 명령이나 돌게 된다.
+# (2) 그래도 실행은 실행이므로 기본은 꺼져 있다. --external 을 줘야 돌린다
+#     (LaTeX 의 --shell-escape 와 같은 약속). 다만 결과가 이미 캐시에 있으면
+#     실행할 일이 없으므로 옵션 없이도 그 결과를 쓴다.
+# (3) 결과는 원고 폴더의 _external/ 에 "도구이름-내용해시" 로 저장한다. 블록
+#     내용이나 도구 설정이 바뀌어야만 다시 돌린다.
+# (4) 실패하면(도구 없음, 0 아닌 종료, 시간 초과, 결과 파일 없음) 변환을 멈춘다.
+# (5) 그림 결과는 `![캡션](_external/…){속성}` 한 줄로 바꿔 기존 그림 경로에
+#     태운다. 캡션·라벨·너비·번호·상호참조가 그대로 작동한다. 글 결과는 그
+#     자리에 끼워 넣는다(text: 그대로 보이는 블록, markdown: 다시 변환, tex: raw).
+# (6) 블록마다 프로세스를 따로 띄운다. 블록 사이에 상태는 이어지지 않는다.
+#
+# mapping 의 도구 정의:
+#   external:
+#     lilypond:
+#       run: "lilypond --pdf -dcrop -o %(base)s %(src)s"   # 필수
+#       ext: ly                # 블록 내용을 저장할 파일의 확장자 (기본 txt)
+#       result: pdf            # pdf png svg jpg eps | text markdown tex (기본 pdf)
+#       output: "%(base)s.cropped.pdf"   # 도구가 결과를 두는 곳 (기본 %(base)s.<result>)
+#       crop: false            # true 면 PDF 결과에 pdfcrop 을 돌린다
+#       timeout: 60            # 초
+#       web: "lilypond --png -dcrop -o %(base)s %(src)s"   # HTML 용 그림을 만드는 명령(선택)
+#       web_output: "%(base)s.cropped.png"
+#   쓸 수 있는 자리: %(src)s 원문 파일, %(base)s 확장자 없는 출력 경로,
+#   %(out)s 출력 파일, %(dir)s 캐시 폴더. 글 결과에서 output 을 안 주면 표준
+#   출력을 받는다.
+
+EXTERNAL_CACHE_DIR = "_external"
+_EXT_INFO_RE = re.compile(r"^external\b[ \t]*(.*)$")
+_EXT_FIGURE_RESULTS = ("pdf", "png", "svg", "jpg", "jpeg", "eps")
+_EXT_TEXT_RESULTS = ("text", "markdown", "md", "tex")
+_EXT_WEB_OK = ("png", "svg", "jpg", "jpeg")
+_EXT_OWN_OPTS = ("tool", "crop", "timeout")
+
+
+class ExternalError(Exception):
+    pass
+
+
+def _ext_run(cmd_template, vals, cwd, timeout, what):
+    """명령 템플릿을 돌린다. 템플릿을 먼저 낱말로 나눈 뒤 자리를 채운다 —
+    경로를 채운 다음에 나누면 Windows 경로의 역슬래시가 깨진다."""
+    try:
+        argv = [a % vals for a in shlex.split(str(cmd_template))]
+    except (KeyError, ValueError, TypeError) as e:
+        raise ExternalError(f"{what}: 명령 '{cmd_template}' 을(를) 풀지 못했습니다 ({e}).")
+    if not argv:
+        raise ExternalError(f"{what}: 명령이 비어 있습니다.")
+    try:
+        proc = subprocess.run(argv, cwd=str(cwd), capture_output=True, timeout=timeout,
+                              encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        raise ExternalError(f"{what}: '{argv[0]}' 을(를) 실행할 수 없습니다. 설치돼 있고 PATH 에 있는지 확인하십시오.")
+    except subprocess.TimeoutExpired:
+        raise ExternalError(f"{what}: {timeout}초 안에 끝나지 않아 중단했습니다 (timeout 으로 늘릴 수 있습니다).")
+    if proc.returncode != 0:
+        tail = "\n".join((proc.stderr or proc.stdout or "").strip().split("\n")[-15:])
+        raise ExternalError(f"{what}: 종료 코드 {proc.returncode} 로 실패했습니다.\n{tail}")
+    return proc
+
+
+def _pdf_to_png(pdf, png, dpi=150):
+    """PDF 첫 쪽을 PNG 로. 쓸 수 있는 것을 차례로 시도하고 성공 여부를 돌려준다.
+
+    PySide6 는 importlib 로 부른다 — 정적 import 로 쓰면 PyInstaller 가 이
+    스크립트를 묶을 때 Qt 전체를 끌어넣는다."""
+    try:
+        import importlib
+        qtpdf = importlib.import_module("PySide6.QtPdf")
+        qtgui = importlib.import_module("PySide6.QtGui")
+        qtcore = importlib.import_module("PySide6.QtCore")
+        if qtgui.QGuiApplication.instance() is None:
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            _pdf_to_png._app = qtgui.QGuiApplication([])
+        doc = qtpdf.QPdfDocument(None)
+        doc.load(str(pdf))
+        if doc.pageCount() > 0:
+            size = doc.pagePointSize(0)
+            img = doc.render(0, qtcore.QSize(max(1, int(size.width() * dpi / 72)),
+                                             max(1, int(size.height() * dpi / 72))))
+            if not img.isNull():
+                # QtPdf 는 투명 바탕으로 그린다. 어두운 화면에서 검은 선이 사라지지
+                # 않게 흰 바탕에 얹는다(pdftocairo 의 결과와도 같아진다).
+                canvas = qtgui.QImage(img.size(), qtgui.QImage.Format.Format_RGB32)
+                canvas.fill(0xFFFFFFFF)
+                painter = qtgui.QPainter(canvas)
+                painter.drawImage(0, 0, img)
+                painter.end()
+                if canvas.save(str(png)):
+                    return True
+    except Exception:
+        pass
+    stem = str(Path(png).with_suffix(""))
+    for argv in (["pdftocairo", "-png", "-r", str(dpi), "-singlefile", "-f", "1", "-l", "1", str(pdf), stem],
+                 ["pdftoppm", "-png", "-r", str(dpi), "-singlefile", "-f", "1", "-l", "1", str(pdf), stem],
+                 ["gs", "-q", "-dNOPAUSE", "-dBATCH", "-sDEVICE=png16m", f"-r{dpi}",
+                  "-dFirstPage=1", "-dLastPage=1", f"-sOutputFile={png}", str(pdf)]):
+        if shutil.which(argv[0]) is None:
+            continue
+        try:
+            subprocess.run(argv, capture_output=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if Path(png).is_file():
+            return True
+    return False
+
+
+def run_external(body, opts, cfg, base_dir, web=False):
+    """external 블록 하나를 처리해 ("figure", 원고 폴더 기준 경로) 또는
+    ("text"|"markdown"|"tex", 글) 을 돌려준다. 실패하면 ExternalError.
+
+    web=True (ndhmd2html) 이면 그림 결과가 PDF/EPS 일 때 같은 이름의 PNG 도
+    옆에 만들어 둔다."""
+    name = _unbrace_attr(opts.get("tool"))
+    if not name:
+        raise ExternalError("```external 블록에 tool=이름 이 없습니다.")
+    tools = cfg.get("external") if isinstance(cfg.get("external"), dict) else {}
+    conf = tools.get(name)
+    if not isinstance(conf, dict) or not conf.get("run"):
+        known = ", ".join(sorted(tools)) or "(없음)"
+        raise ExternalError(f"```external 의 도구 '{name}' 이(가) mapping 의 external: 에 등록돼 있지 않습니다. "
+                            f"등록된 도구: {known}")
+    what = f"external 도구 '{name}'"
+    result = str(conf.get("result", "pdf")).lower()
+    if result not in _EXT_FIGURE_RESULTS + _EXT_TEXT_RESULTS:
+        raise ExternalError(f"{what}: result '{result}' 을(를) 알 수 없습니다 "
+                            f"({' '.join(_EXT_FIGURE_RESULTS + _EXT_TEXT_RESULTS)}).")
+    is_fig = result in _EXT_FIGURE_RESULTS
+
+    def _flag(v):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+    crop = _flag(opts["crop"]) if "crop" in opts else bool(conf.get("crop"))
+    try:
+        timeout = float(opts.get("timeout", conf.get("timeout", 60)))
+    except (TypeError, ValueError):
+        timeout = 60.0
+
+    ext = str(conf.get("ext", "txt")).lstrip(".")
+    digest = hashlib.sha1(repr((name, str(conf.get("run")), ext, result, str(conf.get("output")),
+                                crop, body)).encode("utf-8")).hexdigest()[:16]
+    base_dir = Path(base_dir).resolve()
+    cache = base_dir / EXTERNAL_CACHE_DIR
+    base = cache / f"{name}-{digest}"
+    src = Path(str(base) + "." + ext)
+    vals = {"src": str(src), "base": str(base), "dir": str(cache), "result": result}
+    vals["out"] = str(base) + "." + (result if is_fig else "out")
+    out_tmpl = conf.get("output")
+    produced = Path(str(out_tmpl) % vals) if out_tmpl else Path(vals["out"])
+    final = Path(vals["out"])          # 캐시에 남기는 이름은 언제나 base.<result>
+
+    if not final.is_file():
+        if not cfg.get("_external_enabled"):
+            raise ExternalError(
+                f"{what} 을(를) 실행해야 하는 ```external 블록이 있습니다. 외부 도구는 --external 옵션을 "
+                f"줘야 실행합니다 (결과가 {EXTERNAL_CACHE_DIR}/ 에 이미 있으면 옵션 없이도 씁니다).")
+        cache.mkdir(parents=True, exist_ok=True)
+        src.write_text(body + "\n", encoding="utf-8")
+        proc = _ext_run(conf["run"], vals, base_dir, timeout, what)
+        if not is_fig and not out_tmpl:
+            produced.write_text(proc.stdout or "", encoding="utf-8")
+        if not produced.is_file():
+            raise ExternalError(f"{what}: 명령은 끝났지만 결과 파일 {produced} 이(가) 없습니다. "
+                                f"도구 정의의 output 을 확인하십시오.")
+        if crop and result == "pdf":
+            cropped = Path(str(base) + ".crop.pdf")
+            _ext_run("pdfcrop %(in)s %(out)s", {"in": str(produced), "out": str(cropped)},
+                     base_dir, 120, what + " 의 crop(pdfcrop)")
+            produced = cropped
+        if produced != final:
+            shutil.move(str(produced), str(final))
+
+    if not is_fig:
+        text = final.read_text(encoding="utf-8", errors="replace").rstrip("\n")
+        return ("markdown" if result == "md" else result), text
+
+    if web and result not in _EXT_WEB_OK:
+        png = final.with_suffix(".png")
+        if not png.is_file():
+            if conf.get("web"):
+                if not cfg.get("_external_enabled"):
+                    raise ExternalError(f"{what}: HTML 용 그림을 만들려면 --external 옵션이 필요합니다.")
+                _ext_run(conf["web"], vals, base_dir, timeout, what + " 의 web 명령")
+                made = Path(str(conf.get("web_output", "%(base)s.png")) % vals)
+                if made.is_file() and made != png:
+                    shutil.move(str(made), str(png))
+            if not png.is_file() and result == "pdf":
+                _pdf_to_png(final, png)
+            if not png.is_file():
+                raise ExternalError(
+                    f"{what}: {final.name} 을(를) HTML 에 쓸 PNG 로 바꾸지 못했습니다. 도구 정의에 web 명령을 "
+                    f"두거나, PySide6(QtPdf) · pdftocairo · pdftoppm · gs 중 하나를 쓸 수 있게 하십시오.")
+    return "figure", os.path.relpath(final, base_dir).replace(os.sep, "/")
+
+
+def _unbrace_attr(v):
+    v = (v or "").strip().strip("\"'")
+    while v.startswith("{") and v.endswith("}"):
+        v = v[1:-1].strip()
+    return v
+
+
+def _external_replacement(body, opts, cfg, base_dir, web):
+    """external 블록 자리에 놓을 마크다운 줄들."""
+    kind, value = run_external(body, opts, cfg, base_dir, web)
+    if kind == "figure":
+        caption = _unbrace_attr(opts.get("caption")) if "caption" in opts else ""
+        attrs = []
+        for k, v in opts.items():
+            if k in _EXT_OWN_OPTS or k == "caption":
+                continue
+            if v == "":
+                attrs.append(k)
+            elif re.search(r"[,\s\"]", v):
+                attrs.append('%s="%s"' % (k, v.replace('"', "'")))
+            else:
+                attrs.append(f"{k}={v}")
+        line = f"![{caption}]({value})" + ("{" + ", ".join(attrs) + "}" if attrs else "")
+        return [line]
+    lines = value.split("\n") if value else []
+    if kind == "markdown":
+        return lines
+    ticks = "`" * max([3] + [len(m.group(0)) + 1 for m in re.finditer(r"`{3,}", value)])
+    return [ticks + ("tex" if kind == "tex" else "text")] + lines + [ticks]
+
+
+def expand_external(text, cfg, base_dir, sync_events=None, web=False):
+    """```external 블록을 결과로 바꾼다. 다른 펜스는 통째로 지나간다(문법을
+    설명하려고 더 긴 펜스 안에 넣어 둔 external 예제를 실행하지 않기 위해서다).
+
+    sync_events 가 주어지면 (시작줄, 끝줄, 바뀐 줄 수) 를 기록한다."""
+    if "external" not in text:
+        return text
+    lines = text.split("\n")
+    out = []
+    i, n = 0, len(lines)
+    while i < n:
+        m = _SE_FENCE_OPEN_RE.match(lines[i])
+        if not m:
+            out.append(lines[i])
+            i += 1
+            continue
+        start = i
+        fence_len = len(m.group(1))
+        info_m = _EXT_INFO_RE.match(m.group(2).strip())
+        i += 1
+        body_lines = []
+        closed = False
+        while i < n:
+            close_m = _FENCE_CLOSE_RE.match(lines[i])
+            if close_m and len(close_m.group(1)) >= fence_len:
+                closed = True
+                i += 1
+                break
+            body_lines.append(lines[i])
+            i += 1
+        if info_m is None or not closed:
+            out.extend(lines[start:i])
+            continue
+        opts = parse_figure_attrs(info_m.group(1))
+        rep = [""] + _external_replacement("\n".join(body_lines), opts, cfg, base_dir, web) + [""]
+        if sync_events is not None:
+            sync_events.append((start, i, len(rep)))
+        out.extend(rep)
+    return "\n".join(out)
+
+
 def convert_fragment(md_text, cfg, depth=0):
     """마크다운 조각을 본문 LaTeX로 변환한다(문서 헤더 없이).
 
@@ -2627,6 +2909,8 @@ def convert_fragment(md_text, cfg, depth=0):
     쓴다. cfg는 호출 시점에 이미 _footnotes까지 채워져 있어야 한다.
     """
     store = []
+    if cfg.get("_external_base") is not None:
+        md_text = expand_external(md_text, cfg, cfg["_external_base"])
     text = extract_showexam(md_text, store) if depth < _SE_MAX_DEPTH else md_text
 
     sub_pr = Protector()
@@ -7333,6 +7617,8 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
     _rtl_setup(cfg, meta)
 
     body = resolve_includes(body, base_dir, pr, self_path=source_path)
+    cfg["_external_base"] = base_dir
+    body = expand_external(body, cfg, base_dir)
 
     toplevel = meta.get("toplevel")
     if toplevel:
@@ -7464,6 +7750,11 @@ def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_pat
             cfg["headings"] = new_headings
 
     origin = LineOriginMap(file_origin)
+
+    cfg["_external_base"] = base_dir
+    ext_events = []
+    body = expand_external(body, cfg, base_dir, ext_events)
+    origin.apply_shrink(ext_events)
 
     showexam_store = []
     se_events = []
@@ -7867,6 +8158,9 @@ def main():
                     help="가이드 문서 읽기. 기본값은 ndhmd4tex_dialect_guide.pdf")
     ap.add_argument("--lint", action="store_true",
                     help="자주 저지르는 문법 오류 체크")
+    ap.add_argument("--external", action="store_true",
+                    help="```external 블록의 외부 도구 실행을 허용한다 "
+                         "(mapping 의 external: 에 등록한 도구만)")
     ap.add_argument("--syncinfo", action="store_true",
                     help="PDF와의 상호 탐색을 위한 .nmdsync 파일 쓰기")
     ap.add_argument("--dump-meta", action="store_true",
@@ -8168,6 +8462,7 @@ def main():
                   file=sys.stderr)
             sys.exit(1)
 
+    cfg["_external_enabled"] = bool(args.external)
     try:
         sync_entries = None
         if body_only:
@@ -8219,7 +8514,7 @@ def main():
                 sync_entries = None
         else:
             tex = convert(text, cfg, include_base=src_path.parent, meta=meta, source_path=src_path)
-    except IncludeError as e:
+    except (IncludeError, ExternalError) as e:
         print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)
     except PandocError as e:

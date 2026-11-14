@@ -691,6 +691,34 @@ showexam:
 #  B: '\footnoteB%(opt)s{%(text)s}'
 #  default: '\footnoteA%(opt)s{%(text)s}'   # 꼬리표 없는 각주의 종류를 바꿈
 
+# ── ```external 블록이 부를 수 있는 외부 도구 ──────────────────────
+# 원고는 여기 등록한 도구만 이름으로 부를 수 있다(가이드 10.3). 실행에는 변환기의
+# --external 옵션이 필요하고, 결과는 원고 폴더의 _external/ 에 캐시된다.
+#   run        실행할 명령(필수). 셸을 거치지 않는다.
+#              %(src)s 블록 내용 파일, %(base)s 확장자 없는 출력 경로,
+#              %(out)s 출력 파일, %(dir)s 캐시 폴더
+#   ext        블록 내용을 저장할 확장자 (기본 txt)
+#   result     pdf png svg jpg eps | text markdown tex (기본 pdf)
+#   output     도구가 결과를 두는 곳 (기본 %(base)s.<result>, 글 결과는 표준 출력)
+#   crop       true 면 PDF 결과에 pdfcrop
+#   timeout    제한 시간(초, 기본 60)
+#   web, web_output   ndhmd2html 용 PNG 를 만드는 명령과 그 결과 파일
+#external:
+#  lilypond:
+#    run: "lilypond --pdf -dcrop -o %(base)s %(src)s"
+#    ext: ly
+#    result: pdf
+#    output: "%(base)s.cropped.pdf"
+#    web: "lilypond --png -dcrop -o %(base)s %(src)s"
+#    web_output: "%(base)s.cropped.png"
+#  dot:
+#    run: "dot -Tpdf -o %(out)s %(src)s"
+#    ext: dot
+#  calc:
+#    run: "python3 %(src)s"
+#    ext: py
+#    result: markdown
+
 # ── ndhmd2html 전용 규칙 ───────────────────────────────────────────
 # ndhmd4tex 은 이 키를 읽지 않는다. HTML 로 바꿀 때만 쓰인다.
 # macros:       \이름{인자} 를 어떤 HTML 로 낼지. %(1)s %(2)s … 가 인자(인라인 처리된

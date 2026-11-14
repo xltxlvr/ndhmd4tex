@@ -1,5 +1,24 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.22.0, ndhmd2html.py 0.4.0
+
+- **```` ```external ```` 블록: 외부 도구의 결과를 그림이나 글로 받아온다.**
+  `` ```external tool=lilypond, caption="…", label=…, width=… `` 처럼 쓴다.
+  - 도구는 mapping 의 `external:` 에 등록한 것만 이름으로 부를 수 있다(원고에 명령줄을 쓰지 않는다).
+  - 실행은 `--external` 을 줘야 한다. 결과는 원고 폴더의 `_external/` 에 내용 해시로 캐시되고,
+    캐시에 있으면 옵션 없이도 쓴다.
+  - 그림 결과(pdf png svg jpg eps)는 `![캡션](…){속성}` 으로 바뀌어 기존 그림 경로를 탄다.
+    글 결과는 `text`(그대로 보이는 블록) / `markdown`(다시 변환) / `tex`(raw).
+  - 실패(미등록 도구, 실행 파일 없음, 0 아닌 종료, 시간 초과, 결과 파일 없음)하면 변환을 멈춘다.
+  - `--syncinfo` 줄 대응, `showexam` 안에서의 실행, 더 긴 펜스 안의 예제는 실행하지 않는 것을 확인했다.
+  - graphviz(`dot`)와 python 으로 시험했다. lilypond 와 `crop`(pdfcrop)은 개발 환경에 없어
+    실행해 보지 못했다.
+- **ndhmd2html**: 같은 규칙·같은 캐시로 `external` 을 처리한다. PDF 그림은 같은 이름의 PNG 를
+  옆에 만들어 쓴다(도구의 `web` 명령 → PySide6 QtPdf → pdftocairo → pdftoppm → gs).
+  QtPdf 경로와 pdftocairo 경로를 각각 확인했다.
+- **ndhmd2html 버그 수정**: 그림 속성의 `width=0.5\linewidth` 가 HTML 에 반영되지 않던 문제
+  (`\linewidth` 가 매크로 단계에서 먼저 사라졌다).
+
 ## ndhmd4tex.py 0.21.3, ndhmd2html.py 0.3.2
 
 - **버그 수정: polyglossia 의 아랍어 RTL 블록이 `\begin{arabic}` 으로 나가 컴파일이 실패했다.**

@@ -66,6 +66,7 @@ With no front matter, `ndhmd-default.nmd` is used as the base.
 - **`showexam`**: a documentation block that shows source and converted result side by side, or stacked (`layout=stack`)
 - **Mapping rules**: change what each piece of markup becomes in LaTeX through YAML (`mapping:`, `mappingrule:`, `--config`)
 - **Splitting documents**: `{{file}}` transclusion, and `setup:` so several documents share one header
+- **External tools**: an `external` block runs a tool registered in the mapping (lilypond, graphviz, a script…) and brings its output in as a figure or text; opt-in with `--external`, cached in `_external/`
 - **Outsourcing modes**: `--pandoc` and `--mmd` hand only the body conversion to pandoc or MultiMarkdown, while the header and preamble stay with this tool
 - **PDF navigation**: `--syncinfo` writes a `.nmdsync` file, and `ndhmdsync.py` searches backwards from the PDF to the line in the source `.md`
 

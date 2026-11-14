@@ -46,6 +46,11 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
   ndhmd4tex 과 똑같이 따른다. `RTLtypeset: none` 이면 감싸지 않는다.
   `:::{hebrew}` 같은 RTL 블록은 `<div class="hebrew rtl" lang="he" dir="rtl">`, RTL 글자만
   있는 독립 문단은 `<p lang="he" dir="rtl">` 가 되고 그 안의 구간은 다시 감싸지 않는다.
+- ```` ```external ```` 블록은 ndhmd4tex 과 같은 규칙·같은 캐시(`_external/`)로 처리한다.
+  실행에는 `--external` 이 필요하고 결과가 캐시에 있으면 없어도 된다. 그림 결과가
+  PDF 면 같은 이름의 PNG 를 옆에 만들어 그것을 쓴다(도구 정의의 `web` 명령, 없으면
+  PySide6 의 QtPdf · pdftocairo · pdftoppm · gs 순). `result: tex` 는 raw LaTeX 이므로
+  생략된다.
 - 본문에 직접 쓴 `<`, `>`, `&` 는 글자로 나간다. HTML 을 그대로 넣으려면
   `` `<br />`{=html} `` 처럼 쓴다(ndhmd4tex 은 이 스팬을 버린다).
 - 모르는 LaTeX 매크로 `\이름{인자}` 는 `<span class="tex-이름">인자</span>` 가 된다.
@@ -105,13 +110,13 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.3.2"
+__version__ = "0.4.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
-          "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script")
+          "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
-    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.21.2 이상이 필요합니다.\n"
+    print("오류: 옆에 있는 ndhmd4tex.py (%s) 가 너무 옛 판입니다. 0.22.0 이상이 필요합니다.\n"
           "  없는 것: %s" % (getattr(nd, "__version__", "?"), ", ".join(_missing)), file=sys.stderr)
     sys.exit(1)
 
@@ -696,6 +701,21 @@ def _inline(text, ctx, local):
         return P('<span class="math inline">\\(%s\\)</span>' % esc(inner))
     text = nd.INLINE_MATH_RE.sub(do_math, text)
     text = nd._VERB_SPAN_RE.sub(lambda m: P("<code>%s</code>" % esc(m.group(2))), text)
+
+    # 그림의 {속성} 은 매크로 단계보다 먼저 떼어 둔다. width=0.5\linewidth 의
+    # \linewidth 가 매크로로 처리돼 사라지면 너비를 읽을 수 없다.
+    raw_attrs = {}
+
+    def _stash(m):
+        if not m.group(3):
+            return m.group(0)
+        key = "\uE050%d\uE051" % len(raw_attrs)
+        raw_attrs[key] = m.group(3)
+        a, b = m.start(3) - m.start(0), m.end(3) - m.start(0)
+        return m.group(0)[:a] + key + m.group(0)[b:]
+    text = nd.FIGURE_RE.sub(_stash, text)
+    text = nd.FIGURE_REF_RE.sub(_stash, text)
+
     text = ctx.macro_re.sub(lambda m: P(_macro(m.group(0), ctx)), text)
     if ctx.rtl:
         # RTL 구간. 브라우저가 방향을 알아서 처리하므로 언어와 방향만 표시한다.
@@ -712,7 +732,7 @@ def _inline(text, ctx, local):
             return P(esc(m.group(0)))
         m2 = nd._REF_DEF_VALUE_RE.match(defn)
         attrs = nd.parse_figure_attrs(m2.group(2) or "")
-        for k, v in nd.parse_figure_attrs(m.group(3) or "").items():
+        for k, v in nd.parse_figure_attrs(raw_attrs.get(m.group(3), m.group(3)) or "").items():
             if v == "" and k != "align":
                 attrs.pop(k, None)
             else:
@@ -747,7 +767,8 @@ def _inline(text, ctx, local):
     text = ctx.refcite_raw_re.sub(do_refcite, text)         # rawopt 는 조판 인자라 버린다
     text = nd.FIGURE_REF_RE.sub(do_figure_ref, text)
     text = nd.FIGURE_RE.sub(
-        lambda m: P(_figure(m.group(1), m.group(2), nd.parse_figure_attrs(m.group(3)), ctx)), text)
+        lambda m: P(_figure(m.group(1), m.group(2),
+                            nd.parse_figure_attrs(raw_attrs.get(m.group(3), m.group(3))), ctx)), text)
     text = nd.LINK_REF_RE.sub(do_link_ref, text)
     text = nd.LINK_RE.sub(lambda m: P(_link(m.group(1), m.group(2), ctx)), text)
     text = nd.INLINE_FOOTNOTE_TAG_RE.sub(lambda m: P(_note(m.group(1), m.group(2), ctx)), text)
@@ -1373,6 +1394,7 @@ def frame(lines, ctx):
 def fragment(md_text, ctx, depth=0):
     """showexam 의 결과 쪽: 본문 처리만 다시 돌린다."""
     store = []
+    md_text = nd.expand_external(md_text, ctx.cfg, ctx.base_dir, web=True)
     text = nd.extract_showexam(md_text, store) if depth < 3 else md_text
     saved = (ctx.pr, ctx.se_store, getattr(ctx, "_se_depth", 0))
     ctx.pr, ctx.se_store, ctx._se_depth = nd.Protector(), store, depth + 1
@@ -1836,6 +1858,10 @@ def convert(body, cfg, meta, base_dir, opts, source_path=None):
     cfg = dict(cfg)
     ctx = Ctx(cfg, meta, base_dir, opts)
     body = nd.resolve_includes(body, ctx.base_dir, _RawCatch(ctx), self_path=source_path)
+    # ```external 블록: ndhmd4tex 과 같은 캐시(_external/)를 쓴다. PDF 결과는 옆에 PNG 를
+    # 만들어 두고, 그림 경로 해석(_img_src)이 그 PNG 를 고른다.
+    cfg["_external_enabled"] = bool(getattr(opts, "external", False))
+    body = nd.expand_external(body, cfg, ctx.base_dir, web=True)
     body = nd.extract_showexam(body, ctx.se_store)
     body = protect_blocks(body, ctx, ctx.pr)
     body, cfg["_footnotes"] = nd.extract_footnotes(body)
@@ -1937,6 +1963,8 @@ def main(argv=None):
     ap.add_argument("--no-mathjax", dest="mathjax", action="store_const", const=None,
                     help="MathJax 스크립트를 넣지 않는다")
     ap.add_argument("--keep-raw", action="store_true", help="raw LaTeX 블록을 <pre class=\"rawtex\"> 로 남긴다")
+    ap.add_argument("--external", action="store_true",
+                    help="```external 블록의 외부 도구 실행을 허용한다 (mapping 에 등록한 도구만)")
     ap.add_argument("--lang", help="문서 언어 (기본: front matter 의 lang, 없으면 ko)")
     ap.add_argument("--config", help="매핑 파일 (ndhmd4tex 의 --config 와 같다)")
     ap.add_argument("--setup", help="헤더 파일 (ndhmd4tex 의 --setup 과 같다)")
@@ -1970,7 +1998,7 @@ def main(argv=None):
         opts.fallback_title = src.stem
         opts.out_dir = out_path.parent
         body, ctx = convert(body_md, cfg, meta, src.parent, opts, source_path=src)
-    except (nd.SourceError, nd.SetupError, nd.ConfigError, nd.IncludeError) as e:
+    except (nd.SourceError, nd.SetupError, nd.ConfigError, nd.IncludeError, nd.ExternalError) as e:
         print("오류: %s" % e, file=sys.stderr)
         return 1
     css_note = ""
