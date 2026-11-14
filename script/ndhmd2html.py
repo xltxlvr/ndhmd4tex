@@ -110,7 +110,7 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -997,6 +997,10 @@ def _para_text(b):
     return _join_lines(first, b[1:])
 
 
+def _math_only(b):
+    return len(b) == 1 and re.fullmatch(r"\\\(.*\\\)", b[0].strip()) is not None
+
+
 def blocks(lines, ctx):
     bl = nd.split_blocks(lines)
     kinds = [_kind(b, ctx) for b, _ in bl]
@@ -1018,8 +1022,16 @@ def blocks(lines, ctx):
                 if rtl_p:
                     ctx.rtl_ambient = None
             # `||` 로 이은 두 평문단은 한 문단이다. 빈 줄 뒤의 `||` 는 줄만 바꾼다.
+            # 한쪽이 수식만 있는 문단(external 의 result: math)이면 공백으로 잇는다 —
+            # LaTeX 쪽에서 그 결과는 문단이 아닌 블록이라 `||` 가 줄바꿈(=공백)으로
+            # 잇기 때문에, 두 출력이 같은 글이 되게 맞춘다.
             while mark in nd._JOINS and i + 1 < n and kinds[i + 1] == "para":
-                html += ("<br />\n" if mark == nd.JOIN_BR else "") + ctx.inl(_para_text(bl[i + 1][0]))
+                nxt = bl[i + 1][0]
+                if _math_only(bl[i][0]) or _math_only(nxt):
+                    glue = " "
+                else:
+                    glue = "<br />\n" if mark == nd.JOIN_BR else ""
+                html += glue + ctx.inl(_para_text(nxt))
                 i += 1
                 mark = bl[i][1]
             piece = wrap_p(html, ctx)

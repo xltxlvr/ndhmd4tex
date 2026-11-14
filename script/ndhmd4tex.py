@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.22.1"
+__version__ = "0.22.2"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -2906,7 +2906,16 @@ def expand_external(text, cfg, base_dir, sync_events=None, web=False):
             out.extend(lines[start:i])
             continue
         opts = parse_figure_attrs(info_m.group(1))
-        rep = [""] + _external_replacement("\n".join(body_lines), opts, cfg, base_dir, web) + [""]
+        rep = _external_replacement("\n".join(body_lines), opts, cfg, base_dir, web)
+        # 결과를 앞뒤 글과 떼어 놓으려고 빈 줄을 두르되, 바로 옆이 `||` 이면 두지
+        # 않는다. `||` 앞의 빈 줄은 "줄을 바꿔 잇기"라는 뜻이라, 여기서 빈 줄을
+        # 끼우면 원고에 없는 줄바꿈이 생긴다.
+        def _plain(line):
+            return line.strip() not in ("", JOIN_MARK)
+        if out and _plain(out[-1]):
+            rep = [""] + rep
+        if i < n and _plain(lines[i]):
+            rep = rep + [""]
         if sync_events is not None:
             sync_events.append((start, i, len(rep)))
         out.extend(rep)

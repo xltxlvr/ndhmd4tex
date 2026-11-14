@@ -2284,6 +2284,25 @@ of chapter 15.
   (0.22.1) — for a computed number or expression in the math font. Multi-line
   output is joined into one line; empty output is an error. In `ndhmd2html` it
   becomes inline math `\(…\)`.
+- **To put a result inside a sentence, join it with `||`** (4.1). A block's
+  result normally stands as its own paragraph, but joined to the neighbouring
+  paragraphs with `||` it becomes part of one paragraph.
+
+  ````
+  The value is
+  ||
+  ```external tool=calc
+  print(6*7)
+  ```
+  ||
+  exactly.
+  ````
+
+  A `math` result is joined with one space on each side (`The value is 42
+  exactly.`). A `markdown` result is an ordinary paragraph, so it follows the
+  normal `||` rule and is attached with no space. The converter puts no blank
+  line next to a `||`, so no line break appears that the manuscript did not
+  ask for (0.22.2).
 
 **Execution rules.**
 
