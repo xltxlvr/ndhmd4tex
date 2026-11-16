@@ -1147,12 +1147,13 @@ bibliography:
 ```
 
 파일 이름만 적는 줄임 표기도 된다(`bibliography: a.bib`, `bibliography: [a.bib, b.bib]`,
-`bibliography: "a.bib, b.bib"`). `.bib` 확장자는 적어도 되고 빼도 된다.
+`bibliography: "a.bib, b.bib"`). `.bib` 확장자는 적어도 되고 빼도 된다. bibtex 방식의
+`\bibliography`에는 확장자를 붙여 내보낸다(요즘 TeX 배포판의 bibtex은 그대로 읽는다).
 
 | | biblatex (`backend: biber`) | bibtex (`backend: bibtex`) |
 |---|---|---|
 | 프리앰블 끝 | `\usepackage[backend=biber,style=…]{biblatex}` + `\addbibresource{a.bib}` | — |
-| 문서 끝 | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a,ref}` |
+| 문서 끝 | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a.bib,ref.bib}` |
 
 - **backend 판정**: `biber`는 biblatex를 쓴다는 뜻이다(`biblatex`도 같은 뜻으로 받는다).
   `bibtex`는 전통 방식이다. 생략하면 프리앰블이 biblatex를 이미 불러 두었는지로 정한다.

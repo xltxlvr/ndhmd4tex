@@ -18,6 +18,10 @@ preamble+: |
     \usepackage{graphicx}
     \usepackage[colorlinks=true, allcolors=blue]{hyperref}
 compileoption: --bibtex='bibtex'
+bibliography:
+  backend: bibtex
+  style: alpha
+  resource: sampleref.bib
 ---
 
 <!-- 출처: \url{https://www.overleaf.com/latex/templates/example-project/qzykddzqhkwk} -->
@@ -108,5 +112,7 @@ If you have an [upgraded account](https://www.overleaf.com/user/subscription/pla
 
 We hope you find Overleaf useful, and do take a look at our [help library](https://www.overleaf.com/learn) for more tutorials and user guides! Please also let us know if you have any feedback using the Contact Us link at the bottom of the Overleaf menu --- or use the contact form at [](https://www.overleaf.com/contact).
 
+<!--
 \bibliographystyle{alpha}
-\bibliography{sample.bib}
+\bibliography{sampleref.bib}
+-->

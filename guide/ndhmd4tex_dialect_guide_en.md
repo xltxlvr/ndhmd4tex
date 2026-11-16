@@ -1229,12 +1229,13 @@ bibliography:
 
 A short form with just the file names also works (`bibliography: a.bib`,
 `bibliography: [a.bib, b.bib]`, `bibliography: "a.bib, b.bib"`). The `.bib` extension
-may be written or left out.
+may be written or left out. For bibtex, `\bibliography` is
+written with the extension (current TeX distributions' bibtex reads it as is).
 
 | | biblatex (`backend: biber`) | bibtex (`backend: bibtex`) |
 |---|---|---|
 | End of preamble | `\usepackage[backend=biber,style=…]{biblatex}` + `\addbibresource{a.bib}` | — |
-| End of document | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a,ref}` |
+| End of document | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a.bib,ref.bib}` |
 
 - **Choosing the backend**: `biber` means biblatex (`biblatex` is accepted as the same
   thing). `bibtex` is the traditional route. When omitted, it depends on whether the

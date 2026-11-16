@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.24.1"
+__version__ = "0.24.2"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -7094,7 +7094,7 @@ def _rtl_block_delims(script, cfg):
 #   * biblatex 방식: 프리앰블에 \addbibresource{x.bib} (biblatex 를 아직 안 불렀고
 #     backend: biber 이면 \usepackage[backend=biber,style=…]{biblatex} 도), 문서 끝에
 #     \printbibliography
-#   * bibtex 방식:   문서 끝에 \bibliographystyle{…} 와 \bibliography{x}  (확장자 없이)
+#   * bibtex 방식:   문서 끝에 \bibliographystyle{…} 와 \bibliography{x.bib}  (.bib 확장자를 붙여)
 # 를 내보낸다. 사용자가 본문에 \printbibliography / \bibliography{ / thebibliography
 # 를 직접 썼으면 출력 명령은 넣지 않는다(파일 선언만 한다).
 #
@@ -7338,7 +7338,7 @@ def bibliography_body_lines(body_tex, meta, pandoc=False, mmd=False):
     if not _BIB_USER_STYLE_RE.search(vis):
         style = plan["style"] or ("plainnat" if plan["natbib"] else "plain")
         out.append(rf"\bibliographystyle{{{style}}}")
-    out.append(r"\bibliography{" + ",".join(plan["resources"]) + "}")
+    out.append(r"\bibliography{" + ",".join(n + ".bib" for n in plan["resources"]) + "}")
     return out
 
 

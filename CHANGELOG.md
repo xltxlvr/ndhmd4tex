@@ -1,5 +1,11 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.24.2
+
+- **bibtex 방식의 `\bibliography` 에 `.bib` 확장자를 붙인다**(`\bibliography{a.bib,ref.bib}`). 이전에는
+  확장자 없이 `\bibliography{a,ref}` 를 냈다. TeX Live 2023 의 bibtex 에서 확장자를 붙여도 그대로
+  읽히는 것을 확인했다. biblatex 의 `\addbibresource` 는 원래 확장자를 붙인다.
+
 ## ndhmd4tex.py 0.24.1 그대로, ndhmd2html.py 0.5.0
 
 - **ndhmd2html: `bibliography:` 로 문헌 목록을 만든다(`.bbl` 에서).**
