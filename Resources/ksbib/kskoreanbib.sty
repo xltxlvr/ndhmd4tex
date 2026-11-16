@@ -1,4 +1,4 @@
-\ProvidesPackage{kskoreanbib}[2026/11/16 v0.3 Korean bibliography for biblatex+biber (numeric | authoryear)]
+\ProvidesPackage{kskoreanbib}[2026/11/16 v0.4 Korean bibliography for biblatex+biber (numeric | authoryear)]
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % kskoreanbib — 한국어 문헌과 구미어 문헌이 섞인 문헌 목록 (biblatex + biber)
 %
@@ -123,7 +123,8 @@
     \renewbibmacro{in:}{}%
     \DeclareFieldFormat[article]{volume}{제#1권\nopunct}%
     \DeclareFieldFormat[article]{number}{\ #1호\addperiod}%
-    \DeclareFieldFormat[article]{title}{\snm{#1}\addcomma}%
+    \DeclareFieldFormat{title}{\bnm{#1}}%                  단행본·소책자 등: 『제목』
+    \DeclareFieldFormat[article]{title}{\snm{#1}\addcomma}%  논문: 「제목」,
     \DeclareFieldFormat[article]{pages}{\mkcomprange[\mkpageprefix]{#1}}%
   }{%
     \let\jTitleFmt\emph
