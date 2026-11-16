@@ -1132,6 +1132,114 @@ RTLtypeset:                              # 풀어 쓴 꼴
   `preamble:`에 `\providecommand\UseMathForPositioningText{}`를 넣는다.
   `\DocumentMetadata`를 선언한 문서에서는 나지 않는다.
 
+### 2.5. `bibliography` — `.bib` 파일 선언과 문헌 목록 출력
+
+`.bib` 파일을 쓰는 문서는 front matter에 선언해 두면 프리앰블과 문서 끝에 필요한 명령이
+알아서 들어간다.
+
+```yaml
+bibliography:
+  backend: biber            # biber | bibtex (생략하면 자동 판정)
+  resource: [a.bib, ref.bib]
+  style: authoryear
+  title: 문헌 목록
+  lang: en              # en | ko | en+ko — 한국어 문헌은 2.5.1
+```
+
+파일 이름만 적는 줄임 표기도 된다(`bibliography: a.bib`, `bibliography: [a.bib, b.bib]`,
+`bibliography: "a.bib, b.bib"`). `.bib` 확장자는 적어도 되고 빼도 된다.
+
+| | biblatex (`backend: biber`) | bibtex (`backend: bibtex`) |
+|---|---|---|
+| 프리앰블 끝 | `\usepackage[backend=biber,style=…]{biblatex}` + `\addbibresource{a.bib}` | — |
+| 문서 끝 | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a,ref}` |
+
+- **backend 판정**: `biber`는 biblatex를 쓴다는 뜻이다(`biblatex`도 같은 뜻으로 받는다).
+  `bibtex`는 전통 방식이다. 생략하면 프리앰블이 biblatex를 이미 불러 두었는지로 정한다.
+- **`natbib=true`**: 이 도구가 biblatex를 불러 줄 때 `style`이 `authoryear` 계열(`authoryear`,
+  `authoryear-comp` 등)이면 `natbib=true`를 함께 넣는다. `[@p:키]`, `[@t:키]`(`\citep`,
+  `\citet`)가 biblatex에서도 그대로 동작한다. 번호 방식 등 다른 스타일에는 넣지 않는다.
+  다른 옵션을 쓰고 싶으면 `preamble:`에서 `\usepackage[…]{biblatex}`를 직접 부르면 된다(아래).
+- **이미 biblatex를 불렀으면** 패키지를 다시 넣지 않고 `\addbibresource`만 더한다.
+  이때 `style`은 무시하고(스타일은 `\usepackage[style=…]{biblatex}`에서 정한다) 경고한다.
+  `backend: bibtex`인데 biblatex가 로드되어 있으면 모순이라 biblatex 방식으로 처리하며 경고한다.
+- **`style`**: biblatex에서는 패키지 옵션 `style=`, bibtex에서는 `\bibliographystyle`의 인자다.
+  bibtex에서 생략하면 natbib을 불렀을 때 `plainnat`, 아니면 `plain`이다.
+- **`title`**: biblatex는 `\printbibliography[title={…}]`로 넘기고, bibtex는 `\bibname`과
+  `\refname`을 바꾼다. 생략하면 클래스·언어 패키지의 기본 제목이 나온다.
+- **출력 위치**: 기본은 `\end{document}` 바로 앞이다. 다른 곳에 두려면 원고에
+  `\printbibliography`나 `\bibliography{…}`를 직접 쓴다. 이미 썼으면 출력 명령은 넣지 않고
+  파일 선언만 한다. `thebibliography` 환경(17.2)이 있을 때도 마찬가지다.
+  verbatim 안이나 주석 안에 있는 것은 쓴 것으로 치지 않는다.
+- `\nocite{*}`가 필요하면 본문에 직접 쓴다. 선언한 `.bib`가 원고 폴더에 없으면 경고하지만
+  (TeX가 다른 경로에서 찾을 수도 있다) 변환은 계속한다.
+- 컴파일할 때 biber나 bibtex를 돌리는 것은 컴파일 도구의 몫이다. `--latexmk`는 알아서 고른다.
+  ksruncltex로 컴파일한다면 front matter의 `compileoption:`에 `--biber`를 준다(biber 사용).
+  HTML 변환(아래 ndhmd2html)에 `.bbl`이 필요하면 `--copybbl`도 함께 준다. `--copybbl`은
+  output-dir에 생성된 `.bbl`만 원고 폴더로 복사해 오는 옵션이다.
+
+  ```yaml
+  compileoption: --biber --copybbl
+  ```
+- `--pandoc`/`--mmd` 모드에서는 이 키를 처리하지 않고 경고한다.
+- **ndhmd2html**: HTML에서는 LaTeX와 biber/bibtex을 먼저 돌려 만든 `<이름>.bbl`에서 목록을 만든다.
+  ksruncltex로 컴파일했다면 `compileoption: --biber --copybbl`로 `.bbl`을 원고 폴더에 가져와야 한다.
+  `.bbl`이 없으면 목록 자리에 "LaTeX과 biber/bibtex을 먼저 실행하여야 문헌 목록이 생성됩니다."
+  안내를 넣는다. bibtex 형식 `.bbl`은 바로 읽고, biber 형식은 `bbl2bibitem.lua`가 만든
+  `<이름>-thebib.tex`를 읽는다(`--bibharvest`가 만든다). 본문의 `[@키]`는 목록 항목으로
+  링크되며 번호 방식은 `[1]`, 저자-연도는 `Knuth (1984)`, `(Knuth, 1984)`로 나간다.
+- 한국어 문헌(`lang: ko`, `en+ko`)은 2.5.1.
+- 이 키는 문서 단위 설정이라 매핑이 아니라 front matter(또는 `setup:`으로 물려주는 헤더)에 쓴다.
+
+### 2.5.1. `lang` — 한국어 문헌
+
+한국어 문헌이 들어가는 문서는 `lang`을 준다. 한국어 문헌 서식은 `kskoreanbib.sty`(와
+`korean.lbx`)가 맡으며 biblatex+biber가 필요하다.
+
+| `lang` | 하는 일 |
+|---|---|
+| `en` (기본) | 지금까지와 같다. |
+| `ko` | `kskoreanbib`을 불러 한국어 서식을 켠다. 문헌 목록은 **한 벌**로 찍는다. |
+| `en+ko` | `ko`와 같되, 목록을 **두 번** 나눠 찍는다. 한국어 문헌(`keywords`에 `kobib`)이 먼저, 그 밖의 문헌이 뒤에 온다. |
+
+```yaml
+bibliography:
+  resource: sample.bib
+  style: authoryear         # numeric | authoryear
+  lang: en+ko
+  title: 참고문헌
+```
+
+```verb
+\usepackage[authoryear]{kskoreanbib}
+\addbibresource{sample.bib}
+...
+\printbibheading[title={참고문헌}]
+\printbibliography[keyword=kobib,heading=none]
+\printbibliography[notkeyword=kobib,heading=none]
+```
+
+- **`.bib` 쪽 약속**: 한국어 항목에는 `keywords = {kobib}`를 단다. 한글과 영문이 섞인 항목은
+  `kobibmixed`(authoryear에서만 쓴다). biblatex의 `langid`로 언어를 가르는 방법은 babel이나
+  polyglossia 없이는 문구가 바뀌지 않으므로(kotex만 쓰는 문서) 키워드로 가른다.
+- **`style`**: `numeric`(생략하면 이쪽)과 `authoryear`(`authoryear-comp` 등 계열 포함)만
+  지원한다. 다른 값은 경고하고 `numeric`으로 둔다. authoryear에서는 `natbib=true`가 들어가
+  `[@t:키]`, `[@p:키]`가 동작하고, numeric에서는 natbib 명령이 없다.
+- **`ko`와 `en+ko`는 biber를 쓴다.** `backend: bibtex`라고 적었으면 경고하고 biblatex 방식으로
+  처리한다. 컴파일할 때 biber를 돌리는 것은 `--latexmk`나 `compileoption: --biber` 쪽의 몫이다.
+- **kotex는 직접 불러 둔다.** `preamble:`에 `\usepackage{kotex}`(또는 oblivoir 클래스)가 있어야
+  한다. `kskoreanbib`은 그 뒤, 프리앰블 끝에 들어간다.
+- **파일 배치**: `kskoreanbib.sty`와 `korean.lbx`는 **TEXMFHOME에 설치하기를 권장한다**
+  (`kpsewhich -var-value TEXMFHOME`이 알려 주는 폴더 아래 `tex/latex/kskoreanbib/`). TeX가
+  찾을 수 있으면 변환기는 아무것도 하지 않는다. 설치하지 않았다면 이 도구와 같은 폴더나
+  공유 리소스 폴더(`ndhmd4tex/resources/` 아래, `ksbib/` 같은 하위 폴더도 훑는다)에 사본을
+  두면 되고, 컴파일 폴더에 없을 때 그 폴더로 **복사**한다. 이미 있는 파일은 덮어쓰지 않으므로
+  고쳐 쓴 사본이 안전하다.
+- **이미 biblatex를 불렀으면** `kskoreanbib`을 불러오지 않고 경고한다(둘이 충돌한다). 이때
+  `en+ko`의 나눠 찍기는 그대로 적용된다. 한국어 서식이 필요하면 `preamble:`에서
+  `\usepackage{kskoreanbib}`를 직접 쓴다.
+- `--pandoc`/`--mmd`에서는 `bibliography:` 전체를 처리하지 않는다(2.5).
+
 ## 3. 헤딩
 
 ```markdown
@@ -3263,8 +3371,8 @@ environments:
 
 ### 17.2. `thebibliography` — 원고에 직접 쓰는 문헌 목록
 
-`.bib` 파일과 biber/bibtex를 쓴다면 이 절은 필요 없다(그쪽은 이 스크립트의
-소관이 아니다). 문헌 목록을 원고에 직접 적어야 할 때 쓴다.
+`.bib` 파일과 biber/bibtex를 쓴다면 이 절 대신 front matter의 `bibliography:`(2.5)를
+쓴다. 문헌 목록을 원고에 직접 적어야 할 때 이 절을 쓴다.
 
 ```markdown
 :::{thebibliography widest="99"}

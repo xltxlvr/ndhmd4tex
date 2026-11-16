@@ -1213,6 +1213,126 @@ controls inserted by editors (LRM, RLM, …) are removed.
   `\providecommand\UseMathForPositioningText{}` to `preamble:`. Documents
   that declare `\DocumentMetadata` do not hit this.
 
+### 2.5. `bibliography` — declaring `.bib` files and printing the reference list
+
+If the document uses `.bib` files, declare them in the front matter and the commands
+they need go into the preamble and at the end of the document for you.
+
+```yaml
+bibliography:
+  backend: biber            # biber | bibtex (auto-detected when omitted)
+  resource: [a.bib, ref.bib]
+  style: authoryear
+  title: References
+  lang: en              # en | ko | en+ko — Korean references: 2.5.1
+```
+
+A short form with just the file names also works (`bibliography: a.bib`,
+`bibliography: [a.bib, b.bib]`, `bibliography: "a.bib, b.bib"`). The `.bib` extension
+may be written or left out.
+
+| | biblatex (`backend: biber`) | bibtex (`backend: bibtex`) |
+|---|---|---|
+| End of preamble | `\usepackage[backend=biber,style=…]{biblatex}` + `\addbibresource{a.bib}` | — |
+| End of document | `\printbibliography[title={…}]` | `\bibliographystyle{…}` + `\bibliography{a,ref}` |
+
+- **Choosing the backend**: `biber` means biblatex (`biblatex` is accepted as the same
+  thing). `bibtex` is the traditional route. When omitted, it depends on whether the
+  preamble already loads biblatex.
+- **`natbib=true`**: when this tool loads biblatex for you and `style` is an `authoryear`
+  style (`authoryear`, `authoryear-comp`, …), it also passes `natbib=true`, so `[@p:key]` and
+  `[@t:key]` (`\citep`, `\citet`) work with biblatex too. It is not added for numeric and
+  other styles. To use other options, load `\usepackage[…]{biblatex}` yourself in
+  `preamble:` (see below).
+- **If biblatex is already loaded**, the package is not loaded again; only
+  `\addbibresource` is added. `style` is then ignored with a warning (set the style in
+  `\usepackage[style=…]{biblatex}`). `backend: bibtex` with biblatex loaded is
+  contradictory, so it is handled the biblatex way, with a warning.
+- **`style`**: the `style=` package option for biblatex; the argument of
+  `\bibliographystyle` for bibtex. For bibtex, omitting it gives `plainnat` if natbib is
+  loaded and `plain` otherwise.
+- **`title`**: passed as `\printbibliography[title={…}]` for biblatex; for bibtex it
+  redefines `\bibname` and `\refname`. Omitted, the class's or language package's
+  default title appears.
+- **Where it goes**: just before `\end{document}` by default. To put it elsewhere, write
+  `\printbibliography` or `\bibliography{…}` in the manuscript yourself; if you did,
+  the output command is not added and only the file declaration is made. The same holds
+  when a `thebibliography` environment (17.2) is present. Occurrences inside verbatim or
+  comments do not count.
+- If you want `\nocite{*}`, write it in the body. A declared `.bib` that is missing from
+  the manuscript folder produces a warning (TeX may still find it elsewhere); the
+  conversion goes on.
+- Running biber or bibtex while compiling is the compile tool's job; `--latexmk` picks
+  the right one by itself. If you compile with ksruncltex, give `--biber` in the front matter's
+  `compileoption:` (to use biber). If the HTML conversion (ndhmd2html, below) needs the `.bbl`,
+  add `--copybbl` as well; it copies only the `.bbl` generated in the output-dir back to the
+  manuscript folder.
+
+  ```yaml
+  compileoption: --biber --copybbl
+  ```
+- `--pandoc` and `--mmd` do not process this key and warn instead.
+- **ndhmd2html**: for HTML, the list is built from the `<name>.bbl` made by running LaTeX and
+  biber/bibtex first. If you compiled with ksruncltex, bring the `.bbl` into the manuscript folder
+  with `compileoption: --biber --copybbl`. Without a `.bbl` the list spot gets the notice "Run LaTeX and
+  biber/bibtex first to generate the reference list." A bibtex-style `.bbl` is read directly; a
+  biber-style one is read through `<name>-thebib.tex` made by `bbl2bibitem.lua`
+  (`--bibharvest` makes it). `[@key]` citations link to the list entries and show `[1]` for numeric
+  styles, `Knuth (1984)` / `(Knuth, 1984)` for author-year.
+- For Korean references (`lang: ko`, `en+ko`) see 2.5.1.
+- This is a document-level setting, so it goes in the front matter (or in a header
+  inherited with `setup:`), not in a mapping.
+
+### 2.5.1. `lang` — Korean references
+
+For documents with Korean references, give `lang`. The Korean formatting comes from
+`kskoreanbib.sty` (with `korean.lbx`) and needs biblatex+biber.
+
+| `lang` | What it does |
+|---|---|
+| `en` (default) | Same as before. |
+| `ko` | Loads `kskoreanbib` to turn on the Korean formatting. The reference list is printed **once**. |
+| `en+ko` | Like `ko`, but the list is printed **twice**: Korean references (those with `kobib` in `keywords`) first, everything else after. |
+
+```yaml
+bibliography:
+  resource: sample.bib
+  style: authoryear         # numeric | authoryear
+  lang: en+ko
+  title: References
+```
+
+```verb
+\usepackage[authoryear]{kskoreanbib}
+\addbibresource{sample.bib}
+...
+\printbibheading[title={References}]
+\printbibliography[keyword=kobib,heading=none]
+\printbibliography[notkeyword=kobib,heading=none]
+```
+
+- **Convention in the `.bib`**: give Korean entries `keywords = {kobib}`. Entries that mix Hangul
+  and Latin take `kobibmixed` (authoryear only). Splitting by biblatex's `langid` does not change
+  the wording without babel or polyglossia (documents that only use kotex), so keywords are used.
+- **`style`**: only `numeric` (the default here) and `authoryear` (including variants such as
+  `authoryear-comp`) are supported; anything else warns and falls back to `numeric`. With
+  authoryear, `natbib=true` is passed, so `[@t:key]` and `[@p:key]` work; numeric has no natbib
+  commands.
+- **`ko` and `en+ko` use biber.** If you wrote `backend: bibtex`, it warns and goes the biblatex
+  way. Running biber while compiling is up to `--latexmk` or `compileoption: --biber`.
+- **Load kotex yourself.** `preamble:` must contain `\usepackage{kotex}` (or use the oblivoir
+  class). `kskoreanbib` goes after it, at the end of the preamble.
+- **File placement**: installing `kskoreanbib.sty` and `korean.lbx` in **TEXMFHOME is recommended**
+  (under the folder that `kpsewhich -var-value TEXMFHOME` prints, in `tex/latex/kskoreanbib/`). If
+  TeX can find them, the converter does nothing. If you have not installed them, keep copies next
+  to this tool or in the shared resource folder (under `ndhmd4tex/resources/`; subfolders such as
+  `ksbib/` are searched too); they are **copied** into the compile folder when not there yet.
+  Existing files are never overwritten, so an edited copy is safe.
+- **If biblatex is already loaded**, `kskoreanbib` is not loaded and a warning is printed (the two
+  conflict). The split printing of `en+ko` still applies. If you want the Korean formatting, write
+  `\usepackage{kskoreanbib}` in `preamble:` yourself.
+- `--pandoc` and `--mmd` do not process `bibliography:` at all (2.5).
+
 ## 3. Headings
 
 ```markdown
@@ -3507,9 +3627,9 @@ protected by the raw-environment rule from section 8).
 
 ### 17.2. `thebibliography` — a reference list written by hand
 
-If you keep a `.bib` file and run biber or bibtex, skip this section — that
-side is not this script's business. This is for when the reference list has
-to live in the manuscript.
+If you keep a `.bib` file and run biber or bibtex, use the front matter's
+`bibliography:` (2.5) instead of this section. This is for when the reference
+list has to live in the manuscript.
 
 ```markdown
 :::{thebibliography widest="99"}

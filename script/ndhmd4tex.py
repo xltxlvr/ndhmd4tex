@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.22.3"
+__version__ = "0.24.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -6699,6 +6699,9 @@ KNOWN_META_KEYS = {
     # RTLtypeset: 오른쪽에서 왼쪽으로 쓰는 문자(히브리·아랍·시리아)의 조판 방식.
     # resolve_rtl() 참고.
     "RTLtypeset",
+    # bibliography: 문헌 목록 선언(.bib 파일, backend, style, title).
+    # resolve_bibliography() 참고.
+    "bibliography",
     # maketitle: true, tocloft: {...} — \begin{document} 바로 다음에
     # \maketitle/\tableofcontents/\listoffigures/\listoftables 를 자동으로
     # 넣어 준다(_build_frontmatter_commands 참고). 여기 등록해 두지 않으면
@@ -7084,6 +7087,273 @@ def _rtl_block_delims(script, cfg):
     return rf"\begin{{{env}}}", rf"\end{{{env}}}"
 
 
+# ---------------------------------------------------------------------------
+# bibliography: — .bib 파일 선언과 문헌 목록 출력
+# ---------------------------------------------------------------------------
+# front matter 의 bibliography: 를 읽어
+#   * biblatex 방식: 프리앰블에 \addbibresource{x.bib} (biblatex 를 아직 안 불렀고
+#     backend: biber 이면 \usepackage[backend=biber,style=…]{biblatex} 도), 문서 끝에
+#     \printbibliography
+#   * bibtex 방식:   문서 끝에 \bibliographystyle{…} 와 \bibliography{x}  (확장자 없이)
+# 를 내보낸다. 사용자가 본문에 \printbibliography / \bibliography{ / thebibliography
+# 를 직접 썼으면 출력 명령은 넣지 않는다(파일 선언만 한다).
+#
+#   bibliography:                     bibliography: a.bib
+#     backend: biber   # | bibtex     bibliography: [a.bib, b.bib]   (resource 만 적는 줄임 표기)
+#     resource: [a.bib, ref.bib]
+#     style: authoryear
+#     title: 문헌 목록
+#     lang: en          # en | ko | en+ko  — ko 이면 kskoreanbib 를 쓴다(아래)
+_bib_warned = set()
+_BIB_KEYS = ("backend", "resource", "style", "title", "lang")
+
+
+def _bib_warn(msg):
+    if msg not in _bib_warned:
+        _bib_warned.add(msg)
+        print("경고: " + msg, file=sys.stderr)
+
+
+def _strip_tex_comments(text):
+    return "\n".join(re.sub(r"(?<!\\)%.*$", "", ln) for ln in str(text).split("\n"))
+
+
+_BIBLATEX_LOAD_RE = re.compile(
+    r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]*\bbiblatex\b[^}]*\}")
+_NATBIB_LOAD_RE = re.compile(
+    r"\\(?:usepackage|RequirePackage)\s*(?:\[[^\]]*\])?\s*\{[^}]*\bnatbib\b[^}]*\}")
+_BIB_USER_OUTPUT_RE = re.compile(
+    r"\\printbibliography\b|\\bibliography\s*\{|\\begin\s*\{thebibliography\}")
+_BIB_USER_STYLE_RE = re.compile(r"\\bibliographystyle\s*\{")
+_VERBATIM_ENVS_RE = re.compile(
+    r"\\begin\{(verbatim\*?|Verbatim\*?|lstlisting|minted|alltt|comment)\}.*?\\end\{\1\}",
+    re.S)
+_VERB_RE = re.compile(r"\\verb\*?(.).*?\1")
+
+
+def _bib_visible(body_tex):
+    """본문에서 verbatim 류·주석을 걷어낸 사본(사용자가 정말 썼는지 판정용)."""
+    t = _VERBATIM_ENVS_RE.sub("", body_tex)
+    t = _VERB_RE.sub("", t)
+    return _strip_tex_comments(t)
+
+
+def resolve_bibliography(meta, pandoc=False, mmd=False):
+    """front matter 의 bibliography: 를 풀어 계획 딕셔너리로. 없거나 쓸 수 없으면 None.
+
+    계획: mode('biblatex'|'bibtex'), resources(.bib 확장자 없는 이름 목록),
+    backend, style, title, loaded(biblatex 가 이미 로드됐는지), natbib.
+    """
+    raw = meta.get("bibliography")
+    if raw is None or raw is False or raw == "" or raw == []:
+        return None
+    if pandoc or mmd:
+        _bib_warn("bibliography: 는 --pandoc/--mmd 모드에서는 처리하지 않습니다. 무시합니다.")
+        return None
+    spec = {"backend": None, "resource": [], "style": None, "title": None, "lang": None}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k in _BIB_KEYS:
+                spec[k] = v
+            else:
+                _bib_warn(f"bibliography 의 키 '{k}' 을(를) 알 수 없어 무시합니다. "
+                          f"({', '.join(_BIB_KEYS)})")
+    elif isinstance(raw, (str, list)):
+        spec["resource"] = raw
+    else:
+        _bib_warn(f"bibliography: {raw!r} 을(를) 읽지 못했습니다. 무시합니다.")
+        return None
+
+    res = spec["resource"]
+    items = [res] if isinstance(res, str) else list(res or [])
+    names = []
+    for it in items:
+        for part in str(it).split(","):
+            part = part.strip().replace("\\", "/")
+            if part:
+                names.append(part[:-4] if part.lower().endswith(".bib") else part)
+    if not names:
+        _bib_warn("bibliography 에 resource(.bib 파일)가 없어 무시합니다.")
+        return None
+
+    backend = str(spec["backend"]).strip().lower() if spec["backend"] else None
+    if backend in ("auto", ""):
+        backend = None
+    if backend == "biblatex":
+        backend = "biber"
+    if backend not in (None, "biber", "bibtex"):
+        _bib_warn(f"bibliography 의 backend '{backend}' 을(를) 알 수 없어 자동 판정합니다. "
+                  f"(biber | bibtex)")
+        backend = None
+
+    pre = _strip_tex_comments("\n".join(str(meta.get(k, "")) for k in ("beforestart", "preamble")))
+    loaded = bool(_BIBLATEX_LOAD_RE.search(pre))
+    natbib = bool(_NATBIB_LOAD_RE.search(pre))
+    if backend == "biber":
+        mode = "biblatex"
+    elif backend == "bibtex":
+        if loaded:
+            _bib_warn("bibliography 의 backend: bibtex 인데 프리앰블이 biblatex 를 불러 "
+                      "biblatex 방식으로 처리합니다.")
+            mode = "biblatex"
+        else:
+            mode = "bibtex"
+    else:
+        mode = "biblatex" if loaded else "bibtex"
+
+    style = str(spec["style"]).strip() if spec["style"] else None
+    title = str(spec["title"]).strip() if spec["title"] else None
+
+    # lang: en(기본) | ko | en+ko. ko 와 en+ko 는 한국어 문헌 지원(kskoreanbib.sty,
+    # korean.lbx)을 쓰며 biblatex+biber 가 필요하다.
+    lang = re.sub(r"\s+", "", str(spec["lang"]).lower()) if spec["lang"] else "en"
+    if lang == "ko+en":
+        lang = "en+ko"
+    if lang not in ("en", "ko", "en+ko"):
+        _bib_warn(f"bibliography 의 lang '{spec['lang']}' 을(를) 알 수 없어 en 으로 둡니다. "
+                  f"(en | ko | en+ko)")
+        lang = "en"
+    use_kobib, kstyle = False, None
+    if lang != "en":
+        if mode == "bibtex":
+            if backend == "bibtex":
+                _bib_warn(f"bibliography 의 lang: {lang} 은(는) biber(biblatex)가 필요해 "
+                          f"backend: bibtex 를 무시하고 biblatex 방식으로 처리합니다.")
+            mode = "biblatex"
+        if loaded:
+            _bib_warn("프리앰블이 이미 biblatex 를 불러 kskoreanbib 를 불러오지 않습니다. "
+                      "한국어 문헌 서식이 필요하면 preamble 에서 직접 \\usepackage{kskoreanbib} 를 "
+                      "쓰거나 biblatex 로드를 빼세요.")
+        else:
+            use_kobib = True
+            low = (style or "").lower()
+            if not style or low == "numeric":
+                kstyle = "numeric"
+            elif low.startswith("authoryear"):
+                kstyle = "authoryear"
+            else:
+                _bib_warn(f"kskoreanbib 은 style: numeric 과 authoryear 만 지원합니다. "
+                          f"'{style}' 대신 numeric 을 씁니다.")
+                kstyle = "numeric"
+    if mode == "biblatex" and loaded and style:
+        _bib_warn("프리앰블이 이미 biblatex 를 불러 bibliography 의 style 은 무시합니다. "
+                  "(스타일은 \\usepackage[style=…]{biblatex} 에서 정하세요.)")
+    return {"mode": mode, "resources": names, "backend": backend, "style": style,
+            "title": title, "loaded": loaded, "natbib": natbib,
+            "lang": lang, "use_kobib": use_kobib, "kstyle": kstyle}
+
+
+KOBIB_FILES = ("kskoreanbib.sty", "korean.lbx")
+
+
+def bibliography_uses_kobib(meta, pandoc=False, mmd=False):
+    plan = resolve_bibliography(meta, pandoc, mmd)
+    return bool(plan and plan["mode"] == "biblatex" and plan["use_kobib"])
+
+
+def install_kobib_files(out_dir):
+    """kskoreanbib.sty / korean.lbx 가 컴파일 폴더에서 보이게 한다.
+
+    TeX 가 이미 찾을 수 있으면(kpsewhich — TEXMFHOME 에 설치하는 것을 권장한다) 아무것도
+    하지 않는다. 폴더에 이미 있는 파일은 덮어쓰지 않는다(사용자가 고쳐 썼을 수 있다).
+    원본은 default_setup_dirs() 가 돌려주는 자리(작업 폴더, 스크립트 옆, 공유 리소스
+    폴더 …)에서 찾고, 없으면 공유 리소스 폴더 아래 하위 폴더(ksbib/ 등)까지 훑는다.
+    """
+    out_dir = Path(out_dir)
+    for name in KOBIB_FILES:
+        if (out_dir / name).exists():
+            continue
+        try:
+            r = subprocess.run(["kpsewhich", name], capture_output=True, text=True, timeout=10)
+            if r.returncode == 0 and r.stdout.strip():
+                continue
+        except (OSError, subprocess.SubprocessError):
+            pass
+        src = None
+        for d in default_setup_dirs():
+            cand = Path(d) / name
+            if cand.is_file():
+                src = cand
+                break
+        if src is None:
+            # 공유 리소스 폴더는 하위 폴더까지 훑는다(예: ~/ndhmd4tex/resources/ksbib/).
+            for d in resource_dirs():
+                src = _find_shallowest(d, name)
+                if src is not None:
+                    break
+        if src is None:
+            _bib_warn(f"{name} 을(를) 찾지 못했습니다. bibliography 의 lang 에 필요하니 "
+                      f"컴파일 폴더나 TEXMF 에 두세요.")
+            continue
+        try:
+            shutil.copyfile(src, out_dir / name)
+            print(f"알림: {name} 을(를) {out_dir} 에 복사했습니다.", file=sys.stderr)
+        except OSError as e:
+            _bib_warn(f"{name} 을(를) 복사하지 못했습니다: {e}")
+
+
+def bibliography_header_lines(meta, pandoc=False, mmd=False):
+    """프리앰블 끝에 들어갈 줄들(biblatex 방식일 때만)."""
+    plan = resolve_bibliography(meta, pandoc, mmd)
+    if not plan or plan["mode"] != "biblatex":
+        return []
+    out = []
+    if plan["use_kobib"]:
+        out.append(rf"\IfPackageLoadedTF{{biblatex}}{{}}{{\usepackage[{plan['kstyle']}]{{kskoreanbib}}}}")
+    elif not plan["loaded"]:
+        # style 이 authoryear 계열일 때만 natbib=true: \citep/\citet 등 natbib 명령을 biblatex 에서도
+        # 쓸 수 있게 한다([@p:키], [@t:키] 가 그대로 동작). 번호 방식 등에는 넣지 않는다.
+        # 다른 옵션을 원하면 preamble 에서 직접 부른다.
+        opts = ["backend=biber"]
+        if plan["style"] and plan["style"].lower().startswith("authoryear"):
+            opts.append("natbib=true")
+        if plan["style"]:
+            opts.append(f"style={plan['style']}")
+        o = f"[{','.join(opts)}]" if opts else ""
+        out.append(rf"\IfPackageLoadedTF{{biblatex}}{{}}{{\usepackage{o}{{biblatex}}}}")
+    out.extend(rf"\addbibresource{{{n}.bib}}" for n in plan["resources"])
+    return out
+
+
+def bibliography_body_lines(body_tex, meta, pandoc=False, mmd=False):
+    """\\end{document} 바로 앞에 들어갈 줄들. 사용자가 직접 썼으면 비어 있다."""
+    plan = resolve_bibliography(meta, pandoc, mmd)
+    if not plan:
+        return []
+    vis = _bib_visible(body_tex)
+    if _BIB_USER_OUTPUT_RE.search(vis):
+        return []
+    title = plan["title"]
+    if plan["mode"] == "biblatex":
+        if plan["lang"] == "en+ko":
+            # 한국어 문헌(keywords 에 kobib)과 그 밖의 문헌을 나눠 찍는다.
+            head = rf"\printbibheading[title={{{title}}}]" if title else r"\printbibheading"
+            return [head,
+                    r"\printbibliography[keyword=kobib,heading=none]",
+                    r"\printbibliography[notkeyword=kobib,heading=none]"]
+        return [rf"\printbibliography[title={{{title}}}]" if title else r"\printbibliography"]
+    out = []
+    if title:
+        out.append(rf"\def\bibname{{{title}}}\def\refname{{{title}}}")
+    if not _BIB_USER_STYLE_RE.search(vis):
+        style = plan["style"] or ("plainnat" if plan["natbib"] else "plain")
+        out.append(rf"\bibliographystyle{{{style}}}")
+    out.append(r"\bibliography{" + ",".join(plan["resources"]) + "}")
+    return out
+
+
+def bibliography_check_files(meta, base_dir):
+    """선언된 .bib 가 원고 폴더에 없으면 경고(TeX 가 다른 경로에서 찾을 수도 있다)."""
+    plan = resolve_bibliography(meta)
+    if not plan or base_dir is None:
+        return
+    for n in plan["resources"]:
+        if not (Path(base_dir) / (n + ".bib")).exists():
+            _bib_warn(f"bibliography: {n}.bib 을(를) 원고 폴더에서 찾지 못했습니다. "
+                      f"(TeX 가 TEXINPUTS 등 다른 경로에서 찾을 수는 있습니다.)")
+
+
+
 def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):
     """front matter로부터 헤더(프리앰블) 줄 리스트를 만든다.
 
@@ -7142,6 +7412,8 @@ def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):
         # 별도 패키지가 필요 없다(실측으로 확인).
         header.append(r"\IfPackageLoadedTF{graphicx}{}{\usepackage{graphicx}}")
         header.append(rf"\graphicspath{{{braces}}}")
+    # 문헌 목록 선언(.bib). biblatex 는 babel/polyglossia 뒤에 와야 안전하다.
+    header.extend(bibliography_header_lines(meta, pandoc=pandoc, mmd=mmd))
     # RTL 조판에 필요한 줄은 프리앰블 맨 끝에 둔다(bidi 는 늦게 불러야 한다).
     header.extend(rtl_preamble_lines(cfg))
     if title:
@@ -7225,6 +7497,9 @@ def build_document(body_tex, meta, cfg=None, pandoc=False, mmd=False):
     if fm_commands:
         tex += "\n".join(fm_commands) + "\n\n"
     tex += body_tex.strip() + "\n\n"
+    bib_lines = bibliography_body_lines(body_tex, meta, pandoc=pandoc, mmd=mmd)
+    if bib_lines:
+        tex += "\n".join(bib_lines) + "\n\n"
     tex += "\\end{document}\n"
     return tex
 
@@ -7638,6 +7913,7 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
     # 기존 동작에는 전혀 영향이 없다.
     pr = Protector()
     _rtl_setup(cfg, meta)
+    bibliography_check_files(meta, base_dir)
 
     body = resolve_includes(body, base_dir, pr, self_path=source_path)
     cfg["_external_base"] = base_dir
@@ -8555,6 +8831,9 @@ def main():
         print(f"오류: 출력 파일을 쓸 수 없습니다: {out_path}\n  {e}", file=sys.stderr)
         sys.exit(1)
     print(f"변환 완료: {out_path}")
+    if (args.pandoc is None and args.mmd is None and not body_only
+            and bibliography_uses_kobib(meta)):
+        install_kobib_files(out_path.resolve().parent)
 
     if args.syncinfo and sync_entries is not None:
         sync_path = out_path.with_suffix(".nmdsync")

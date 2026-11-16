@@ -1,5 +1,83 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex.py 0.24.1 그대로, ndhmd2html.py 0.5.0
+
+- **ndhmd2html: `bibliography:` 로 문헌 목록을 만든다(`.bbl` 에서).**
+  - LaTeX 과 biber/bibtex 을 먼저 돌려 `<입력이름>.bbl` 이 있어야 한다(`--bbl FILE` 로 지정).
+    없으면 "[LaTeX과 biber/bibtex을 먼저 실행하여야 문헌 목록이 생성됩니다.]" 를 목록 자리에 넣고 경고한다.
+  - bibtex 형식 `.bbl` 은 thebibliography 환경 그 자체라 바로 읽는다(`\newblock`, `{\em …}`, 악센트,
+    대문자 보호 중괄호를 처리한다).
+  - biber 형식 `.bbl` 은 `bbl2bibitem.lua` 가 만든 `<이름>-thebib.tex` 를 읽는다. 없으면
+    `--bibharvest` 가 lualatex 로 만든다(스크립트는 도구 옆·작업 폴더·공유 리소스 폴더에서 찾는다).
+  - 목록은 문서 끝, 또는 `\printbibliography`·`\bibliography{…}` 를 쓴 자리에 놓인다. 본문에
+    thebibliography 환경이 있으면 그것이 우선한다. `.bib` 가 `.bbl` 보다 새로우면 경고한다.
+  - 인용 `[@키]` 가 목록 항목으로 링크된다. 번호 방식은 `[1]`, natbib 꼴 라벨 `Short(Year)` 는
+    저자-연도(`\citet` -> `Short (Year)`, `\citep`/`\cite` -> `(Short, Year)`, `\citeauthor`, `\citeyear`).
+    thebibliography 환경의 `\bibitem[Short(Year)]{키}` 도 같은 방식으로 읽는다(이전에는 라벨을 그대로 보였다).
+  - 새 옵션: `--bbl FILE`, `--bibharvest`.
+
+## ndhmd4tex.py 0.24.1, ndhmd2html.py 0.4.2 그대로
+
+- **`kskoreanbib.sty`·`korean.lbx` 의 위치.** TEXMFHOME 설치를 권장한다(TeX 가 찾으면 복사하지 않는다).
+  설치하지 않았을 때를 위해 공유 리소스 폴더 아래 하위 폴더(`ndhmd4tex/resources/ksbib/` 등)까지
+  훑어 컴파일 폴더로 복사한다.
+- **`korean.lbx` 정리.** `\ProvidesFile{korean.lbx}`; 중복 정의(inseries, ofseries, number, chapter,
+  mathesis, phdthesis, candthesis, resreport) 제거(실제로 적용되던 `inseries = in` 은 유지);
+  `andothers` 의 짧은 칸을 `et al.` 로(`et.~al.` 은 `et. al.` 로 찍혔다); 긴 칸을 한국어로: 권(volume),
+  부(part), 호(issue, number), 장(chapter), 판(edition), 함께 참조(seealso), 지음(byauthor),
+  `번역:`(bytranslator, 영어가 섞이던 `\lbx@lfromlang` 제거). 짧은 칸은 영어 항목 때문에 그대로 둔다.
+- **`kskoreanbib.sty` 0.3.** 한국어 항목의 "et al." 이 `외` 로 찍힌다(인용: `김의중 외`, 영문 항목은 `et al.`).
+  주 언어가 korean 이라 영어 블록의 `andothers` 재정의가 먹지 않던 것을 korean 블록으로 보강했다.
+
+## ndhmd4tex.py 0.24.0, ndhmd2html.py 0.4.2 그대로
+
+- **`bibliography:` 의 `lang:` — 한국어 문헌 지원 (`en` | `ko` | `en+ko`).**
+  - `ko`, `en+ko`: 프리앰블 끝에 `\usepackage[numeric|authoryear]{kskoreanbib}`(biblatex+biber)를 넣는다.
+    `style` 은 numeric(기본)·authoryear 계열만 받고, 그 밖의 값은 경고 후 numeric.
+  - `en+ko`: 문헌 목록을 `\printbibheading` + `\printbibliography[keyword=kobib,heading=none]` +
+    `\printbibliography[notkeyword=kobib,heading=none]` 로 두 번 나눠 찍는다. `ko` 는 한 벌.
+  - `backend: bibtex` 와 같이 쓰면 경고하고 biblatex 방식으로 처리한다. 이미 biblatex 를 불렀으면
+    `kskoreanbib` 을 불러오지 않고 경고한다(나눠 찍기는 그대로).
+  - `kskoreanbib.sty`·`korean.lbx` 가 컴파일 폴더에 없고 TeX 도 찾지 못하면 도구 옆(또는 공유 리소스
+    폴더)의 사본을 컴파일 폴더로 복사한다(이미 있는 파일은 덮어쓰지 않는다).
+- **`kskoreanbib.sty` 0.2: numeric 과 authoryear 를 한 파일로 합쳤다.** 패키지 옵션 `numeric` /
+  `authoryear`(옵션을 안 주면 authoryear)로 갈린다. authoryear 의 출력은 이전 판과 같고,
+  numeric 은 `kskoreanbib` 이 `language=korean`(korean.lbx)로 biblatex 를 불러 주므로 문구 언어가
+  이전 샘플(english)과 조금 다르다(영문 항목의 `In:` 이 사라진다). `\cntrdot`, `\snm`, `\bnm` 은
+  oblivoir/kopunct 가 없어도 `\providecommand` 대용 정의로 동작한다.
+
+## ndhmd4tex.py 0.23.2, ndhmd2html.py 0.4.2 그대로
+
+- **`natbib=true` 는 `style` 이 `authoryear` 계열일 때만 넣는다**(0.23.1 은 항상 넣었다).
+  번호 방식이나 `style` 이 없을 때는 `\usepackage[backend=biber,…]{biblatex}` 만 나간다.
+
+## ndhmd4tex.py 0.23.1, ndhmd2html.py 0.4.2 그대로
+
+- **`bibliography:` 가 biblatex 를 불러 줄 때 `natbib=true` 를 기본으로 넣는다.**
+  `\usepackage[backend=biber,natbib=true,style=…]{biblatex}` — `[@p:키]`, `[@t:키]`
+  (`\citep`, `\citet`)가 biblatex 에서도 동작한다. 다른 옵션을 원하면 `preamble:` 에서 직접 부른다.
+
+## ndhmd4tex.py 0.23.0, ndhmd2html.py 0.4.2
+
+- **front matter `bibliography:` — `.bib` 파일 선언과 문헌 목록 출력.**
+  ```yaml
+  bibliography:
+    backend: biber            # biber | bibtex (생략하면 프리앰블에서 biblatex 로드 여부로 판정)
+    resource: [a.bib, ref.bib]
+    style: authoryear
+    title: 문헌 목록
+  ```
+  `bibliography: a.bib` / `[a.bib, b.bib]` 줄임 표기도 받는다(pandoc 의 같은 이름 키와 호환).
+  - biblatex 방식: 프리앰블 끝에 `\addbibresource{…}`(biblatex 를 아직 안 불렀고 `backend: biber`
+    이면 `\usepackage[backend=biber,style=…]{biblatex}` 도), 문서 끝에 `\printbibliography`.
+  - bibtex 방식: 문서 끝에 `\bibliographystyle{…}`(생략 시 natbib 이면 `plainnat`, 아니면 `plain`)와
+    `\bibliography{…}`(확장자 없이).
+  - 사용자가 본문에 `\printbibliography`, `\bibliography{`, `thebibliography` 를 직접 썼으면(verbatim·주석
+    안은 제외) 출력 명령은 넣지 않는다. 이미 biblatex 를 불렀으면 패키지를 다시 넣지 않고 `style` 은
+    경고와 함께 무시한다. `.bib` 가 원고 폴더에 없으면 경고한다.
+  - `--pandoc`/`--mmd` 에서는 경고하고 처리하지 않는다. `\nocite{*}` 는 사용자가 직접 쓴다.
+- **ndhmd2html**: `bibliography:` 가 있으면 문헌 목록을 아직 만들지 않는다는 경고를 낸다.
+
 ## ndhmd4tex.py 0.22.3, ndhmd2html.py 0.4.1 그대로
 
 - **스마트 따옴표: CJK 전각 여는 괄호 뒤의 따옴표도 여는 따옴표로 판정한다.**

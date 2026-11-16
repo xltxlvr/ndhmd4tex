@@ -1,0 +1,139 @@
+\ProvidesPackage{kskoreanbib}[2026/11/16 v0.3 Korean bibliography for biblatex+biber (numeric | authoryear)]
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% kskoreanbib — 한국어 문헌과 구미어 문헌이 섞인 문헌 목록 (biblatex + biber)
+%
+%   \usepackage[numeric]{kskoreanbib}      % 번호 방식 (기본 아님)
+%   \usepackage[authoryear]{kskoreanbib}   % 저자-연도 방식 (옵션을 안 주면 이쪽)
+%   \addbibresource{sample.bib}
+%
+% .bib 의 한국어 항목에는  keywords = {kobib}  를, 한글·영문이 섞인 항목에는
+% keywords = {kobibmixed} 를 단다(authoryear 에서만 쓴다). 문헌 목록은
+% 한국어와 그 밖의 문헌을 나눠 찍는 것이 보통이다:
+%
+%   \printbibheading
+%   \printbibliography[keyword=kobib,heading=none]
+%   \printbibliography[notkeyword=kobib,heading=none]
+%
+% kotex 는 문서에서 먼저 불러 둔다. korean.lbx 가 같은 폴더나 TEXMF 에 있어야 한다.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\newif\ifkskb@authoryear
+\kskb@authoryeartrue
+\DeclareOption{numeric}{\kskb@authoryearfalse}
+\DeclareOption{authoryear}{\kskb@authoryeartrue}
+\ProcessOptions\relax
+
+%%% ---- biblatex 로드 ----------------------------------------------------
+% 공통: biber, UTF-8, 언어는 korean(korean.lbx), 항목의 langid 가 따로 있으면 그것을 따른다.
+% 갈리는 것: 번호 방식은 maxnames=5 와 defernumbers, 저자-연도 방식은
+% natbib 명령(\citet, \citep)과 이름 줄임·고유화 설정.
+\ifkskb@authoryear
+  \RequirePackage[
+    backend=biber,
+    bibencoding=utf8,
+    natbib=true,
+    citestyle=authoryear,
+    bibstyle=authoryear,
+    maxcitenames=2,
+    maxbibnames=9,
+    language=korean,
+    autolang=other,
+    uniquelist=false,
+    dashed=false
+  ]{biblatex}
+\else
+  \RequirePackage[
+    backend=biber,
+    bibencoding=utf8,
+    style=numeric,
+    maxnames=5,
+    defernumbers,
+    language=korean,
+    autolang=other
+  ]{biblatex}
+\fi
+
+%%% ---- 한글 항목에 쓰는 글꼴·부호 매크로 (kopunct/oblivoir 가 없을 때의 대비) -----
+% oblivoir 나 kopunct 가 이미 정의했으면 그것을 그대로 쓴다.
+\providecommand*\cntrdot{\textperiodcentered}
+\providecommand*\snm[1]{「#1」}
+\providecommand*\bnm[1]{『#1』}
+
+%%% ---- 공통: 영어 문구 / 필드 정리 ------------------------------------------
+\newcommand*{\myownetal}{et~al.}
+\newcommand*\MYand{and}
+\DefineBibliographyStrings{english}{%
+  andothers={\myownetal}{},
+  and={\MYand}{}
+}
+% korean.lbx 가 주 언어이므로 "외"/"et al." 도 같은 매크로로 고른다(항목별로 \myownetal 이 바뀐다).
+\DefineBibliographyStrings{korean}{%
+  andothers={\myownetal}{}
+}
+
+\ifkskb@authoryear
+%%% ---- authoryear ---------------------------------------------------------
+\renewcommand\nameyeardelim{, }   %% natbib command. natbib should be true.
+\renewbibmacro{in:}{}
+
+\let\origbibleftparen\bibleftparen
+\newcommand*\MYbibleftparen{\origbibleftparen}
+\renewcommand*\bibopenparen{\MYbibleftparen}
+\renewcommand*\bibcloseparen{\bibrightparen}
+
+\AtEveryCitekey{%
+  \ifkeyword{kobib}{%
+    \renewcommand{\multinamedelim}{·}%
+    \renewcommand{\finalnamedelim}{·}%
+    \renewcommand*{\myownetal}{외}%
+    \renewcommand*\MYand{\unskip\와}%
+    \renewcommand*\MYbibleftparen{\unskip\origbibleftparen}%
+  }{}%
+}
+
+\AtEveryBibitem{%
+  \clearfield{note}%
+  \ifkeyword{kobib}{%
+    \renewcommand*{\myownetal}{외}%
+    \renewcommand{\multinamedelim}{·}%
+    \renewcommand{\finalnamedelim}{·}%
+    \renewcommand*\mkbibquote[1]{〈#1\isdot〉}%
+    \DeclareFieldFormat{journaltitle}{『#1』}%
+    \DeclareFieldFormat{title}{『#1』}%
+    \DeclareFieldFormat{translator}{#1 (역)}%
+  }{%
+    \renewcommand*\mkbibquote[1]{``#1\isdot''}%
+    \ifkeyword{kobibmixed}{%
+      \renewcommand{\multinamedelim}{, }%
+      \renewcommand{\finalnamedelim}{, }%
+      \DeclareFieldFormat{journaltitle}{『#1』}%
+      \DeclareFieldFormat{title}{『#1』}%
+      \DeclareFieldFormat{translator}{#1 (역)}%
+    }{}%
+  }%
+}%
+\else
+%%% ---- numeric ------------------------------------------------------------
+\AtEveryBibitem{%
+  \ifkeyword{kobib}{%
+    \renewcommand*{\myownetal}{외}%
+    \renewcommand{\multinamedelim}{\cntrdot}%
+    \renewcommand{\finalnamedelim}{\cntrdot}%
+    \let\jTitleFmt\bnm
+    \renewbibmacro{in:}{}%
+    \DeclareFieldFormat[article]{volume}{제#1권\nopunct}%
+    \DeclareFieldFormat[article]{number}{\ #1호\addperiod}%
+    \DeclareFieldFormat[article]{title}{\snm{#1}\addcomma}%
+    \DeclareFieldFormat[article]{pages}{\mkcomprange[\mkpageprefix]{#1}}%
+  }{%
+    \let\jTitleFmt\emph
+    \DeclareFieldFormat[article]{volume}{#1\addcolon}%
+  }%
+}
+\let\jTitleFmt\emph
+\DeclareFieldFormat{journaltitle}{\jTitleFmt{#1}}
+\DeclareFieldFormat{parens}{#1}
+\DeclareFieldFormat[article,incollection]{pages}{#1}
+\fi
+
+\endinput

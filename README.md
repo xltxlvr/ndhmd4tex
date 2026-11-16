@@ -15,6 +15,7 @@ in the front matter let you change that freely.
 | `ndhmd2html.py` | Companion converter: the same manuscripts → HTML/XHTML (a first step toward EPUB). Needs `ndhmd4tex.py` beside it |
 | `ndhmd-default.nmd` | Default header applied to manuscripts that have no front matter |
 | `ndhmdsync.py`, `ndhmdsync.ini.example` | Two-way navigation between the PDF and the source `.md` (via SyncTeX) |
+| `kskoreanbib.sty`, `korean.lbx` | Korean references with biblatex+biber (numeric / authoryear). Used by `bibliography:` with `lang: ko` or `en+ko`; copied next to the `.tex` automatically |
 | `sample_mapping.yaml` | Example `mapping:` settings for changing which LaTeX commands markup turns into |
 | `ndhmd4tex_quickstart.md` | From installation to your first PDF |
 | `ndhmd4tex_dialect_guide.md` / `_en.md` | Syntax reference (Korean / English) |
@@ -67,6 +68,7 @@ With no front matter, `ndhmd-default.nmd` is used as the base.
 - **Mapping rules**: change what each piece of markup becomes in LaTeX through YAML (`mapping:`, `mappingrule:`, `--config`)
 - **Splitting documents**: `{{file}}` transclusion, and `setup:` so several documents share one header
 - **External tools**: an `external` block runs a tool registered in the mapping (lilypond, graphviz, a script…) and brings its output in as a figure or text; opt-in with `--external`, cached in `_external/`
+- **Bibliography**: declare `.bib` files in the front matter (`bibliography:`) and the biblatex or bibtex commands are added for you
 - **Outsourcing modes**: `--pandoc` and `--mmd` hand only the body conversion to pandoc or MultiMarkdown, while the header and preamble stay with this tool
 - **PDF navigation**: `--syncinfo` writes a `.nmdsync` file, and `ndhmdsync.py` searches backwards from the PDF to the line in the source `.md`
 

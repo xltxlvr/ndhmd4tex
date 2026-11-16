@@ -51,6 +51,17 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
   PDF 면 같은 이름의 PNG 를 옆에 만들어 그것을 쓴다(도구 정의의 `web` 명령, 없으면
   PySide6 의 QtPdf · pdftocairo · pdftoppm · gs 순). `result: tex` 는 raw LaTeX 이므로
   생략된다.
+- front matter 의 `bibliography:` 가 있으면 문헌 목록을 **`.bbl` 에서** 만든다. LaTeX 과
+  biber/bibtex 을 먼저 돌려 `<입력이름>.bbl` 이 있어야 한다(`--bbl FILE` 로 바꿀 수 있다).
+  없으면 목록 자리에 "[LaTeX과 biber/bibtex을 먼저 실행하여야 문헌 목록이 생성됩니다.]" 를
+  넣고 경고한다. bibtex 형식 `.bbl` 은 thebibliography 그 자체라 바로 읽는다. biber 형식은
+  biblatex 내부 형식이라 못 읽으므로 `bbl2bibitem.lua` 가 만든 `<이름>-thebib.tex` 를 읽고,
+  없으면 `--bibharvest` 로 만든다(texlua, lualatex, 이전 빌드의 `.tex` 필요; 스크립트는 이
+  도구 옆·작업 폴더·공유 리소스 폴더에서 찾는다). 목록은 문서 끝에 놓이고 `\printbibliography`
+  나 `\bibliography{…}` 를 쓴 자리에 놓을 수도 있다. 본문에 thebibliography 환경이 있으면 그것을
+  쓴다. 항목 라벨이 natbib 꼴 `Short(Year)` 면 저자-연도, 아니면 번호이며, 인용 `[@키]` 는 목록의
+  항목으로 링크된다(`\citet` -> 저자 (연도), `\citep`/`\cite` -> (저자, 연도), 번호 방식 -> [1]).
+  `.bib` 가 `.bbl` 보다 새로우면 경고한다.
 - 본문에 직접 쓴 `<`, `>`, `&` 는 글자로 나간다. HTML 을 그대로 넣으려면
   `` `<br />`{=html} `` 처럼 쓴다(ndhmd4tex 은 이 스팬을 버린다).
 - 모르는 LaTeX 매크로 `\이름{인자}` 는 `<span class="tex-이름">인자</span>` 가 된다.
@@ -97,7 +108,10 @@ import argparse
 import datetime
 import os
 import re
+import shutil
+import subprocess
 import sys
+import unicodedata
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -110,7 +124,7 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -187,9 +201,9 @@ def slug(html):
 # 1. 변환 상태
 # --------------------------------------------------------------------------
 _NAMES = {
-    "ko": {"figure": "그림", "table": "표", "toc": "목차", "notes": "주"},
-    "en": {"figure": "Figure", "table": "Table", "toc": "Contents", "notes": "Notes"},
-    "ja": {"figure": "図", "table": "表", "toc": "目次", "notes": "注"},
+    "ko": {"figure": "그림", "table": "표", "toc": "목차", "notes": "주", "bib": "참고 문헌"},
+    "en": {"figure": "Figure", "table": "Table", "toc": "Contents", "notes": "Notes", "bib": "References"},
+    "ja": {"figure": "図", "table": "表", "toc": "目次", "notes": "注", "bib": "参考文献"},
 }
 _FN_SYMBOLS = ["*", "†", "‡", "§", "¶", "‖", "**", "††", "‡‡"]
 
@@ -221,6 +235,8 @@ class Ctx:
         self.math_labels = set()   # 수식 안의 \label — 번호는 MathJax 가 매긴다
         self.raw_omitted = 0
         self.has_toc_tok = self.has_title_tok = False
+        self.has_bib_tok = False   # \printbibliography / \bibliography 를 본문에 직접 썼는가
+        self.bib_html = ""
         self._warned = set()
         hcfg = cfg.get("html") if isinstance(cfg.get("html"), dict) else {}
         self.user_macros = hcfg.get("macros") or {}
@@ -428,6 +444,9 @@ for _n, _s in (("LaTeX", "LaTeX"), ("TeX", "TeX"), ("XeTeX", "XeTeX"), ("LuaTeX"
     _MACROS[_n] = (lambda a, o, c, s=_s: _logo(a, o, c, s))
 for _n in _DROP:
     _MACROS[_n] = _text("")
+# 문헌 목록 자리: \printbibliography, \bibliography{…} 를 쓴 곳에 목록을 놓는다.
+for _n in ("printbibliography", "bibliography"):
+    _MACROS[_n] = (lambda a, o, c: _bib_tok(c))
 
 _PUNCT_MACROS = {"\\\\": "<br />\n", "\\,": "\u2009", "\\;": "\u2005", "\\%": "%",
                  "\\&": "&amp;", "\\#": "#", "\\_": "_", "\\{": "{", "\\}": "}"}
@@ -444,6 +463,11 @@ def _today(lang):
 def _toc_tok(ctx):
     ctx.has_toc_tok = True
     return blk(tok("toc"))
+
+
+def _bib_tok(ctx):
+    ctx.has_bib_tok = True
+    return blk(tok("bibliography"))
 
 
 def _title_tok(ctx):
@@ -1302,21 +1326,232 @@ def _keep_lines(inner, ctx):
     return "\n".join('<p class="stanza">%s</p>' % "<br />\n".join(s) for s in stanzas)
 
 
+_AY_LABEL_RE = re.compile(r"^(.*?)\(([^()]*\d[^()]*)\)(.*)$", re.S)
+
+
+def _bib_label_info(label):
+    """\bibitem 의 [표시 라벨]. natbib 의 `Short(Year)Long` 이면 저자-연도, 아니면 그대로의 라벨."""
+    label = label.strip()
+    if label.startswith("{") and label.endswith("}"):
+        label = label[1:-1].strip()
+    m = _AY_LABEL_RE.match(label)
+    if m and m.group(1).strip():
+        return ("ay", m.group(1).replace("~", "\u00a0").strip(), m.group(2).strip())
+    return label
+
+
+def _bib_render(items, ctx):
+    """items: [(키, 라벨 또는 None, 본문 한 줄)] -> <p class="bibitem"> 목록."""
+    ctx.has_bib = True
+    out = []
+    for key, label, body in items:
+        key = key.strip()
+        info = _bib_label_info(label) if label else str(len(ctx.bib) + 1)
+        ctx.bib[key] = info
+        bid = ctx.new_id("bib-" + key, auto=True)
+        html = flow(ctx.inl(body), ctx)
+        if isinstance(info, tuple):
+            out.append('<p class="bibitem ay" id="%s">%s</p>' % (esc_attr(bid), html))
+        else:
+            out.append('<p class="bibitem" id="%s"><span class="bib-label">[%s]</span> %s</p>'
+                       % (esc_attr(bid), esc(info), html))
+    return out
+
+
 def _bibliography(inner, ctx):
     text = "\n".join(inner)
     ms = list(_BIBITEM_RE.finditer(text))
-    ctx.has_bib = True
-    out = []
+    items = []
     for n, m in enumerate(ms):
         body = text[m.end():ms[n + 1].start() if n + 1 < len(ms) else len(text)]
-        key = m.group(2).strip()
-        shown = m.group(1) if m.group(1) else str(len(ctx.bib) + 1)
-        ctx.bib[key] = shown
-        bid = ctx.new_id("bib-" + key, auto=True)
-        html = flow(ctx.inl(" ".join(l.strip() for l in body.split("\n") if l.strip())), ctx)
-        out.append('<p class="bibitem" id="%s"><span class="bib-label">[%s]</span> %s</p>'
-                   % (esc_attr(bid), esc(shown), html))
-    return '<section class="bibliography" role="doc-bibliography">\n%s\n</section>' % "\n".join(out)
+        items.append((m.group(2), m.group(1) or None,
+                      " ".join(l.strip() for l in body.split("\n") if l.strip())))
+    return '<section class="bibliography" role="doc-bibliography">\n%s\n</section>' % "\n".join(_bib_render(items, ctx))
+
+
+# ---- front matter 의 bibliography: — .bbl 에서 문헌 목록 만들기 -------------------------
+# ndhmd4tex 가 \addbibresource / \bibliography 를 넣어 LaTeX 로 컴파일하면 biber(또는 bibtex)가
+# <이름>.bbl 을 만든다. 여기서는 그 .bbl 을 읽어 목록을 구성한다.
+#   * bibtex 형식 .bbl: thebibliography 환경 그 자체 -> 바로 읽는다.
+#   * biber 형식 .bbl : biblatex 내부 형식이라 못 읽는다. bbl2bibitem.lua 가 만든
+#                       <이름>-thebib.tex (thebibliography 환경)를 읽는다(--bibharvest 로 만들 수 있다).
+_BBL_COMBINING = {"'": "\u0301", "`": "\u0300", "^": "\u0302", '"': "\u0308", "~": "\u0303",
+                  "=": "\u0304", ".": "\u0307", "c": "\u0327", "v": "\u030c", "u": "\u0306",
+                  "H": "\u030b", "k": "\u0328", "r": "\u030a"}
+_BBL_LETTERS = {"ss": "ß", "o": "ø", "O": "Ø", "aa": "å", "AA": "Å", "ae": "æ", "AE": "Æ",
+                "oe": "œ", "OE": "Œ", "l": "ł", "L": "Ł", "i": "ı", "j": "ȷ"}
+_BBL_STYLE = {"em": "emph", "it": "textit", "bf": "textbf", "sc": "textsc", "sl": "textsl", "tt": "texttt"}
+_BBL_GROUP_RE = re.compile(r"\{\\(em|it|bf|sc|sl|tt)\s+((?:[^{}]|\{[^{}]*\})*)\}")
+_BBL_ACCENT_RE = re.compile(r"\\(['`^\"~=.])\s*(?:\{\\?([A-Za-z])\}|\\?([A-Za-z]))")
+_BBL_ACCENT2_RE = re.compile(r"\\([cvuHkr])\s*(?:\{([A-Za-z])\}|\s([A-Za-z]))")
+_BBL_LETTER_RE = re.compile(r"\\(ss|oe|OE|aa|AA|ae|AE|o|O|l|L)(?![A-Za-z])\s*(?:\{\})?")
+
+
+def _strip_bare_braces(t):
+    """대문자 보호용 {…} 같은 '맨 중괄호'를 벗긴다. \\macro{…} 의 인자 중괄호는 둔다."""
+    out, stack = [], []          # stack: 이 { 가 인자 중괄호였는가
+    after_arg = False            # 바로 앞이 인자 중괄호의 닫힘이었는가(\\href{…}{…})
+    i = 0
+    while i < len(t):
+        c = t[i]
+        if c == "\\" and i + 1 < len(t):
+            out.append(t[i:i + 2])
+            i += 2
+            after_arg = False
+            continue
+        if c == "{":
+            keep = bool(re.search(r"\\[A-Za-z]+\*?(?:\[[^\]]*\])*$", "".join(out[-40:]))) or after_arg
+            stack.append(keep)
+            if keep:
+                out.append(c)
+            after_arg = False
+        elif c == "}" and stack:
+            keep = stack.pop()
+            if keep:
+                out.append(c)
+            elif re.search(r"\\[A-Za-z]+$", "".join(out[-40:])):
+                out.append("{}")           # {\\TeX}book -> \\TeX{}book (제어열이 뒤 글자를 먹지 않게)
+            after_arg = keep
+        else:
+            out.append(c)
+            after_arg = False
+        i += 1
+    return "".join(out)
+
+
+def _bbl_text(raw):
+    """.bbl 항목 본문의 BibTeX 잔재(\\newblock, {\\em …}, 악센트 …)를 ndhmd 가 읽는 모양으로."""
+    t = raw.replace("\\newblock", " ")
+    n = 1
+    while n:
+        t, n = _BBL_GROUP_RE.subn(lambda m: "\\%s{%s}" % (_BBL_STYLE[m.group(1)], m.group(2)), t)
+    t = _BBL_ACCENT_RE.sub(lambda m: (m.group(2) or m.group(3)) + _BBL_COMBINING[m.group(1)], t)
+    t = _BBL_ACCENT2_RE.sub(lambda m: (m.group(2) or m.group(3)) + _BBL_COMBINING[m.group(1)], t)
+    t = re.sub(r"\\i(?![A-Za-z])\s*", "i", t)       # 악센트 밑에서는 점 없는 i 를 그냥 i 로
+    t = _BBL_LETTER_RE.sub(lambda m: _BBL_LETTERS[m.group(1)], t)
+    t = re.sub(r"\\(?:penalty\s*-?\d+|relax|protect|unskip)\b\s*", " ", t)
+    t = t.replace("``", "\u201c").replace("\'\'", "\u201d")
+    t = _strip_bare_braces(t)
+    t = re.sub(r"[ \t]+", " ", t).strip()
+    t = unicodedata.normalize("NFC", t)
+    return t
+
+
+def _bbl_items(text):
+    """thebibliography 환경 안의 \\bibitem 들을 [(키, 라벨, 본문)] 로."""
+    m = re.search(r"\\begin\{thebibliography\}\{[^}]*\}(.*?)\\end\{thebibliography\}", text, re.S)
+    inner = m.group(1) if m else text
+    inner = re.sub(r"(?m)^\s*%.*$", "", inner)
+    # natbib 라벨 [{…}] 의 바깥 중괄호가 중첩이라 직접 훑는다
+    items, pos = [], 0
+    pat = re.compile(r"\\bibitem\s*")
+    marks = [x.start() for x in pat.finditer(inner)]
+    for n, st in enumerate(marks):
+        seg = inner[st:marks[n + 1] if n + 1 < len(marks) else len(inner)]
+        k = pat.match(seg).end()
+        label = None
+        if seg[k:k + 1] == "[":
+            depth, e = 0, k
+            while e < len(seg):
+                if seg[e] == "{":
+                    depth += 1
+                elif seg[e] == "}":
+                    depth -= 1
+                elif seg[e] == "]" and depth == 0:
+                    break
+                e += 1
+            label, k = seg[k + 1:e], e + 1
+        km = re.match(r"\{([^{}]*)\}", seg[k:])
+        if not km:
+            continue
+        body = seg[k + km.end():]
+        body = _bbl_text(" ".join(l.strip() for l in body.split("\n") if l.strip()))
+        items.append((km.group(1), label, body))
+    return items
+
+
+def _bib_harvest_script():
+    here = Path(__file__).resolve().parent
+    for d in [Path.cwd(), here]:
+        if (d / "bbl2bibitem.lua").is_file():
+            return d / "bbl2bibitem.lua"
+    for d in nd.resource_dirs():
+        f = nd._find_shallowest(d, "bbl2bibitem.lua")
+        if f is not None:
+            return f
+    return None
+
+
+def _bib_missing(ctx, why):
+    ko = ctx.lang.lower().startswith("ko")
+    msgs = {
+        "nobbl": ("[LaTeX과 biber/bibtex을 먼저 실행하여야 문헌 목록이 생성됩니다.]",
+                  "[Run LaTeX and biber/bibtex first to generate the reference list.]"),
+        "biber": ("[biber 가 만든 .bbl 은 bbl2bibitem.lua 로 변환해야 합니다 (--bibharvest).]",
+                  "[A biber .bbl must be converted with bbl2bibitem.lua (--bibharvest).]"),
+        "fail": ("[문헌 목록을 만들지 못했습니다.]", "[The reference list could not be built.]"),
+    }
+    text = msgs[why][0 if ko else 1]
+    return '<section class="bibliography bibliography-missing" role="doc-bibliography">\n<p class="bib-missing">%s</p>\n</section>' % esc(text)
+
+
+def bibliography_html(ctx, source_path):
+    """bibliography: 가 있을 때의 문헌 목록 <section>. 못 만들면 안내 문구 목록."""
+    opts = ctx.opts
+    spec = ctx.meta.get("bibliography")
+    title = None
+    if isinstance(spec, dict) and spec.get("title"):
+        title = str(spec["title"])
+    stem = Path(source_path).stem if source_path else "output"
+    bbl = Path(opts.bbl) if getattr(opts, "bbl", None) else ctx.base_dir / (stem + ".bbl")
+    if not bbl.is_file():
+        ctx.warn(f"{bbl.name} 이(가) 없습니다. LaTeX 과 biber/bibtex 을 먼저 실행하면 문헌 목록이 만들어집니다.")
+        return _bib_missing(ctx, "nobbl")
+    text = bbl.read_text(encoding="utf-8", errors="replace")
+    # 선언한 .bib 가 .bbl 보다 새로우면 목록이 낡았을 수 있다
+    res = spec.get("resource") if isinstance(spec, dict) else spec
+    names = [res] if isinstance(res, str) else list(res or [])
+    for n in (x.strip() for it in names for x in str(it).split(",")):
+        bf = ctx.base_dir / (n if n.lower().endswith(".bib") else n + ".bib")
+        if n and bf.is_file() and bf.stat().st_mtime > bbl.stat().st_mtime:
+            ctx.warn(f"{bf.name} 이(가) {bbl.name} 보다 새롭습니다. 다시 컴파일해야 목록이 최신이 됩니다.")
+    if "\\begin{thebibliography}" in text:
+        source = text
+    else:
+        harvested = bbl.with_name(bbl.stem + "-thebib.tex")
+        if getattr(opts, "bibharvest", False):
+            script, texlua = _bib_harvest_script(), shutil.which("texlua")
+            texfile = bbl.with_suffix(".tex")
+            if script is None or texlua is None or not texfile.is_file():
+                ctx.warn("--bibharvest: " + ("bbl2bibitem.lua" if script is None else "texlua" if texlua is None
+                                              else texfile.name) + " 을(를) 찾을 수 없습니다.")
+            else:
+                try:
+                    r = subprocess.run([texlua, str(script), str(texfile), "-o", str(harvested)],
+                                       capture_output=True, text=True, timeout=600)
+                    if r.returncode != 0 or not harvested.is_file():
+                        ctx.warn("--bibharvest 실패: " + (r.stderr or "").strip().splitlines()[-1:][0]
+                                 if (r.stderr or "").strip() else "--bibharvest 실패")
+                    elif r.stderr.strip():
+                        print(r.stderr.strip(), file=sys.stderr)
+                except (OSError, subprocess.SubprocessError) as e:
+                    ctx.warn(f"--bibharvest 실패: {e}")
+        if not harvested.is_file():
+            ctx.warn(f"{bbl.name} 은(는) biber 형식이라 바로 읽을 수 없습니다. "
+                     f"bbl2bibitem.lua 로 {harvested.name} 을(를) 만들거나 --bibharvest 를 주세요.")
+            return _bib_missing(ctx, "biber")
+        if harvested.stat().st_mtime < bbl.stat().st_mtime:
+            ctx.warn(f"{harvested.name} 이(가) {bbl.name} 보다 오래됐습니다. --bibharvest 로 다시 만드세요.")
+        source = harvested.read_text(encoding="utf-8", errors="replace")
+        if "[[MATH?]]" in source:
+            ctx.warn("문헌 목록에 수식이 있어 복원되지 않았습니다([[MATH?]]).")
+    items = _bbl_items(source)
+    if not items:
+        ctx.warn(f"{bbl.name} 에서 문헌 항목을 찾지 못했습니다.")
+        return _bib_missing(ctx, "fail")
+    head = '<h2 class="bibliography-title">%s</h2>\n' % esc(title or ctx.names["bib"])
+    return ('<section class="bibliography" role="doc-bibliography">\n%s%s\n</section>'
+            % (head, "\n".join(_bib_render(items, ctx))))
 
 
 def environment(lines, ctx):
@@ -1469,16 +1704,34 @@ def _ref_html(kind, target, shown, ctx):
 
 
 def _cite_html(variant, keys, ctx):
-    parts = []
+    items = []                      # (키, 정보 또는 None)
     for key in (k.strip() for k in keys.split(",")):
         if not key:
             continue
-        if key in ctx.bib:
-            parts.append('<a href="#%s">%s</a>' % (esc_attr(xid("bib-" + key)), esc(ctx.bib[key])))
+        if key not in ctx.bib and ctx.has_bib:
+            ctx.warn(f"문헌 목록에 없는 키 '{key}' 을(를) 인용했습니다.")
+        items.append((key, ctx.bib.get(key)))
+
+    def link(key, text):
+        return '<a href="#%s">%s</a>' % (esc_attr(xid("bib-" + key)), text)
+
+    if items and all(isinstance(i, tuple) for _, i in items):
+        # 저자-연도: citet = 저자 (연도), citep/cite = (저자, 연도; …), citeauthor, citeyear
+        if variant in ("citeauthor", "citeyear"):
+            n = 1 if variant == "citeauthor" else 2
+            body = ", ".join(link(k, esc(i[n])) for k, i in items)
+            return '<span class="citation cite-%s">%s</span>' % (esc_attr(variant), body)
+        if variant in ("citet", "textcite"):
+            body = ", ".join("%s (%s)" % (link(k, esc(i[1])), link(k, esc(i[2]))) for k, i in items)
         else:
-            if ctx.has_bib:
-                ctx.warn(f"문헌 목록에 없는 키 '{key}' 을(를) 인용했습니다.")
+            body = "(" + "; ".join(link(k, "%s, %s" % (esc(i[1]), esc(i[2]))) for k, i in items) + ")"
+        return '<span class="citation cite-%s">%s</span>' % (esc_attr(variant), body)
+    parts = []
+    for key, info in items:
+        if info is None:
             parts.append(esc(key))
+        else:
+            parts.append(link(key, esc(info[1] + ", " + info[2]) if isinstance(info, tuple) else esc(info)))
     return '<span class="citation cite-%s">[%s]</span>' % (esc_attr(variant), ", ".join(parts))
 
 
@@ -1619,6 +1872,8 @@ def number_notes(html, ctx):
 def resolve_tokens(html, ctx, title_html, toc):
     def place(m):
         f = m.group(1).split(TOK_S)
+        if f[0] == "bibliography":
+            return ctx.bib_html
         return toc if f[0] == "toc" else title_html if f[0] == "titleblock" else m.group(0)
     html = number_notes(_TOK_RE.sub(place, html), ctx)
 
@@ -1768,6 +2023,9 @@ div.center { text-align: center; }
 /* ── 문헌 목록과 인용 ─────────────────────────────────── */
 section.bibliography { }
 p.bibitem { padding-left: 2.5em; text-indent: -2.5em; }
+p.bibitem.ay { padding-left: 2em; text-indent: -2em; }
+.bibliography-title { font-size: 1.3em; }
+.bib-missing { font-style: italic; color: #666; }
 span.bib-label { display: inline-block; min-width: 2.5em; text-indent: 0; }
 span.citation { }
 
@@ -1880,6 +2138,11 @@ def convert(body, cfg, meta, base_dir, opts, source_path=None):
     body, cfg["_refdefs"] = nd.extract_reference_defs(body)
 
     main = ctx.pr.restore(blocks(body.split("\n"), ctx))
+    if meta.get("bibliography") and not ctx.has_bib:
+        # 본문에 thebibliography 환경을 직접 쓰지 않았으면 .bbl 에서 목록을 만든다.
+        ctx.bib_html = bibliography_html(ctx, source_path)
+        if not ctx.has_bib_tok:
+            main = main.rstrip("\n") + "\n" + ctx.bib_html
 
     before = str(meta.get("beforestart") or "")
     tocloft = meta.get("tocloft") if isinstance(meta.get("tocloft"), dict) else {}
@@ -1977,6 +2240,11 @@ def main(argv=None):
     ap.add_argument("--keep-raw", action="store_true", help="raw LaTeX 블록을 <pre class=\"rawtex\"> 로 남긴다")
     ap.add_argument("--external", action="store_true",
                     help="```external 블록의 외부 도구 실행을 허용한다 (mapping 에 등록한 도구만)")
+    ap.add_argument("--bbl", metavar="FILE",
+                    help="문헌 목록을 읽을 .bbl (기본: 입력 이름.bbl). front matter 의 bibliography: 가 있을 때 쓴다")
+    ap.add_argument("--bibharvest", action="store_true",
+                    help="biber 형식 .bbl 이면 bbl2bibitem.lua 로 <이름>-thebib.tex 를 (다시) 만든다 "
+                         "(texlua, lualatex 필요; 이전 빌드의 .tex 가 있어야 한다)")
     ap.add_argument("--lang", help="문서 언어 (기본: front matter 의 lang, 없으면 ko)")
     ap.add_argument("--config", help="매핑 파일 (ndhmd4tex 의 --config 와 같다)")
     ap.add_argument("--setup", help="헤더 파일 (ndhmd4tex 의 --setup 과 같다)")

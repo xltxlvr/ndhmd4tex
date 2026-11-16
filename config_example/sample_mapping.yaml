@@ -677,6 +677,14 @@ showexam:
 #                      detect: auto           # auto | markup
 #                      font: FreeSerif
 #                      hebrew: {font: "Frank Ruehl CLM"}
+#   bibliography  .bib 파일 선언과 문헌 목록 출력 (2.5 참고). 역시 front matter 키다. 예:
+#                    bibliography: a.bib
+#                    bibliography:
+#                      backend: biber        # biber | bibtex (생략하면 자동)
+#                      resource: [a.bib, ref.bib]
+#                      style: authoryear
+#                      title: 문헌 목록
+#                      lang: en              # en | ko | en+ko (2.5.1; ko 는 kskoreanbib 사용)
 #
 # {{filename}} 파일 포함은 설정이 아니라 본문 문법이다(20장).
 # ══════════════════════════════════════════════════════════════════
