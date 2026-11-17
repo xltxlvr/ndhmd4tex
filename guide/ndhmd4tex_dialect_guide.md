@@ -45,6 +45,7 @@ python3 ndhmd4tex.py 입력.md -o 출력.tex      # 출력 경로 지정
 python3 ndhmd4tex.py 입력.md --config mapping.yaml   # 명령 매핑 override
 python3 ndhmd4tex.py 입력.md --setup 바탕.md   # 이 파일의 헤더를 바탕으로 (1.1 참고)
 python3 ndhmd4tex.py 입력.md --setup a.md,b.md   # 여러 파일을 순서대로 병합 (21.3 참고)
+python3 ndhmd4tex.py sub/ch1.md --inherit-meta main.md   # 장 하나만 컴파일, 헤더는 main 것 (1.1.1 참고)
 python3 ndhmd4tex.py --init-setup             # 기본 헤더를 현재 폴더에 꺼내고 끝
 python3 ndhmd4tex.py 입력.txt --encoding cp949  # 입력 인코딩 직접 지정
 python3 ndhmd4tex.py 입력.md --lint      # 변환하지 않고 마크업 실수만 점검 (1.3 참고)
@@ -301,6 +302,31 @@ $ ndhmd4tex.exe 글.md --dump-meta
 프리앰블은 `preamble:`로 적으면 **갈아치우고**, `preamble+:`로 적으면
 기본 헤더의 것 **뒤에 덧붙는다**(21장). 기본 헤더를 살리면서 패키지만
 보태고 싶다면 `preamble+:`를 쓴다.
+
+### 1.1.1. `--inherit-meta` — 서브 파일만 컴파일할 때
+
+`{{포함}}`으로 이어진 책에서 장 하나(서브 파일)만 컴파일하거나 HTML로 보고 싶을 때 쓴다.
+
+```
+python3 ndhmd4tex.py sub/ch1.md --inherit-meta main.md --syncinfo
+python3 ndhmd2html.py sub/ch1.md --inherit-meta main.md
+```
+
+- **헤더는 main에서 온다.** main을 main 자신을 변환할 때와 똑같이 해석한다(`setup:` 체인과
+  기본 헤더 포함). 그래서 `class`, `classoption`, `preamble`, `beforestart`, `mapping`,
+  `toplevel` 등이 장 하나를 컴파일할 때도 main 안에서와 같다. `--setup`/`--default`를 함께
+  주면 main을 해석하는 데 쓰인다.
+- **서브 파일 자신의 front matter는 버린다.** `{{포함}}`된 파일의 front matter가 무시되는
+  것과 같은 규칙이다. 버려지는 키는 알림으로 알려 준다. 깨진 YAML이어도 떼어 내기만 한다.
+- **상속하지 않는 키:** 표지·목차를 만드는 `title`, `subtitle`, `author`, `date`,
+  `maketitle`, `tocloft`. 장 하나에 표지와 목차가 붙지 않게 하려는 것이다.
+- **`--syncinfo`는 그대로 정확하다.** 헤더가 길어진 만큼은 tex 줄 번호에, 서브 파일 자신의
+  front matter 줄 수는 원본 줄 번호에 반영된다. 서브 파일 앞에 main의 헤더를 텍스트로 붙여
+  변환하면 원본 줄 번호가 밀리므로 그렇게 하지 말고 이 옵션을 쓴다.
+- **상대 경로:** `mapping`은 main 폴더 기준으로 찾는다. 그러나 `.bib`, `\input`, 그림 폴더
+  같은 것은 컴파일하는 폴더 기준이다. main과 폴더가 다르면 경고한다.
+- **한계:** 장 번호가 1부터 다시 시작하고 다른 장으로의 상호 참조는 풀리지 않는다.
+  `--pandoc`/`--mmd`에서는 지원하지 않는다(무시한다). HTML의 `<title>`은 파일 이름에서 나온다.
 
 ### 1.2. 설정 파일을 여러 문서가 나눠 쓰기
 

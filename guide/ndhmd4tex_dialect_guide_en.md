@@ -35,6 +35,7 @@ python3 ndhmd4tex.py input.md -o output.tex     # explicit output path
 python3 ndhmd4tex.py input.md --config mapping.yaml   # override the markup<->command mapping
 python3 ndhmd4tex.py input.md --setup base.md   # use this file's header as the base (see 1.1)
 python3 ndhmd4tex.py input.md --setup a.md,b.md   # merge several files in order (see 21.3)
+python3 ndhmd4tex.py sub/ch1.md --inherit-meta main.md   # one chapter only, header from main (see 1.1.1)
 python3 ndhmd4tex.py --init-setup               # write out the default header and exit
 python3 ndhmd4tex.py input.txt --encoding cp949  # force the input encoding
 python3 ndhmd4tex.py input.md --lint       # check for common markup mistakes (see 1.3)
@@ -319,6 +320,31 @@ $ ndhmd4tex.exe doc.md --dump-meta
 A `preamble:` key **replaces** the base header's preamble; `preamble+:`
 **appends** to it (section 21). Use the latter to keep the default and merely
 add packages.
+
+### 1.1.1. `--inherit-meta` — compiling a sub-file on its own
+
+Use it to compile (or view as HTML) one chapter of a book assembled with `{{include}}`.
+
+```
+python3 ndhmd4tex.py sub/ch1.md --inherit-meta main.md --syncinfo
+python3 ndhmd2html.py sub/ch1.md --inherit-meta main.md
+```
+
+- **The header comes from main.** main is resolved exactly as when main itself is converted
+  (the `setup:` chain and the default header included), so `class`, `classoption`,
+  `preamble`, `beforestart`, `mapping`, `toplevel` and so on are the same for one chapter as
+  inside main. `--setup`/`--default`, if given, are used to resolve main.
+- **The sub-file's own front matter is discarded**, the same rule as for an included file's
+  front matter. The discarded keys are reported in a notice. Broken YAML is only cut off.
+- **Not inherited:** `title`, `subtitle`, `author`, `date`, `maketitle` and `tocloft`, the keys
+  that produce a title page and contents, so one chapter does not get them.
+- **`--syncinfo` stays accurate.** The longer header is counted in the tex line numbers, and
+  the sub-file's own front matter lines in the source line numbers. Do not prepend main's
+  header as text before converting; that shifts the source line numbers. Use this option.
+- **Relative paths:** `mapping` is looked up from main's folder, but `.bib`, `\input`, figure
+  folders and the like are relative to the compile folder. A warning appears if the folders differ.
+- **Limits:** chapter numbers restart at 1 and cross-references to other chapters do not
+  resolve. Not supported with `--pandoc`/`--mmd` (ignored). The HTML `<title>` comes from the file name.
 
 ### 1.2. Sharing configuration files between documents
 

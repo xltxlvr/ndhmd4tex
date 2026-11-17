@@ -1,4 +1,4 @@
-% ndhmd4tex 0.19.2 Cheat Sheet
+% ndhmd4tex 0.25.0 Cheat Sheet
 % xelatex cheatsheet.tex
 %! KSRC --xelatex
 \documentclass[a4paper,landscape]{article}
@@ -48,7 +48,7 @@
 \fancyhf{}
 \renewcommand{\headrulewidth}{0pt}
 \renewcommand{\footrulewidth}{0.3pt}
-\fancyfoot[L]{\footnotesize\color{sub}ndhmd4tex 0.19.2 Cheat Sheet}
+\fancyfoot[L]{\footnotesize\color{sub}ndhmd4tex 0.25.0 Cheat Sheet}
 \fancyfoot[C]{\footnotesize\color{sub}자세한 내용은 \texttt{ndhmd4tex\_dialect\_guide.md}}
 \fancyfoot[R]{\footnotesize\color{sub}ktug.org}
 
@@ -82,7 +82,7 @@
 \begin{document}
 
 {\sffamily\bfseries\large\color{acc} ndhmd4tex}\quad
-{\sffamily\small 마크다운 방언 치트시트 \textcolor{sub}{— 0.19.2}}\hfill
+{\sffamily\small 마크다운 방언 치트시트 \textcolor{sub}{— 0.25.0}}\hfill
 {\footnotesize\color{sub}오류를 내지 않고 조용히 달라지는 항목은 \textcolor{acc}{\textbf{굵게}} 표시}
 
 \vspace{1.5pt}\hrule height 0.6pt
@@ -109,6 +109,9 @@
 \C{--init-setup} & 기본 헤더 꺼내기 \\
 \C{--encoding cp949} & 입력 인코딩 지정 \\
 \C{--pandoc[=...]} & 본문만 pandoc에 \\
+\C{--mmd[=...]} & 본문만 MultiMarkdown에 \\
+\C{--external} & \C{external} 도구 실행 허용 \\
+\C{--inherit-meta m.md} & 헤더는 main 것(장 하나만) \\
 \C{--fetch-images} & url 이미지 다운로드 \\
 \C{--animation[=N]} & 애니 GIF를 프레임으로 \\
 \C{--search-resource[=파일]} & 리소스 위치 찾기(하위 폴더도) \\
@@ -123,7 +126,7 @@
 \begin{mk}{}
 키 & 뜻 \\
 \C{class} & 문서 클래스 (기본 \C{book}) \\
-\C{classoptions} & 클래스 옵션 \\
+\C{classoption} & 클래스 옵션 \\
 \C{toplevel} & \C{\#}이 될 구역 명령 \\
 \C{title} \C{author} \C{date} & 제목/저자/날짜 \\
 \C{preamble} & 프리앰블 (교체) \\
@@ -138,6 +141,9 @@
 \C{maketitle: true} & \C{\textbackslash maketitle} 삽입 \\
 \C{tocloft: \{toc,lof,lot\}} & 목차류 삽입 \\
 \C{latexmkoption} & latexmk 추가 인자 \\
+\C{mmdoption} & mmd 추가 인자 \\
+\C{bibliography} & \C{.bib}·문헌 목록 (뒷면) \\
+\C{RTLtypeset} & 오른쪽→왼쪽 문자 (뒷면) \\
 \end{mk}
 \note{더하려면 \C{키+:}. 우선순위: \C{--config} > \C{mappingrule} > \C{mapping}. \C{[a,b]}로 여러 파일도 가능(뒤가 이김, \C{extra\_inline}만 이어붙음).}
 
@@ -285,6 +291,94 @@
 \note{\textbf{\C{\textasciitilde}는 자동 이스케이프 대상이 아니다.} 기본(\C{wavedash: default})에선 \C{\textasciitilde}도 \C{\textbackslash\textasciitilde}도 그대로 LaTeX에 넘어간다. mapping에 \C{wavedash: FF5E}(코드포인트) 또는 \C{\textbackslash 매크로}를 주면 \C{\textasciitilde}는 묶음빈칸 그대로, \C{\textbackslash\textasciitilde}만 그 값이 된다. 코드 스팬 안은 예외.\\
 \C{tilde:}는 \C{\textasciitilde}·\C{\^{}}의 해석 방언. \C{latex}가 기본(묶음빈칸)이고, \C{pandoc} 또는 \C{multimarkdown}을 주면 해당 방언(첨자 등)을 흉내낸다. \C{\textbackslash\textasciitilde}는 어느 모드에서나 wavedash.}
 
+\end{multicols}
+\newpage
+{\sffamily\bfseries\large\color{acc} ndhmd4tex}\quad
+{\sffamily\small 치트시트 뒷면 \textcolor{sub}{— 확장 기능 (0.19.3 이후)}}
+
+\vspace{1.5pt}\hrule height 0.6pt
+\vspace{2pt}
+
+\begin{multicols}{4}
+\raggedright
+
+\section{문헌 목록 — \C{bibliography:}}
+\begin{mk}{}
+키 & 뜻 \\
+\C{backend} & \C{biber}(biblatex) / \C{bibtex} \\
+\C{resource} & \C{a.bib} 또는 \C{[a,b]} (\C{.bib} 생략 가능) \\
+\C{style} & \C{numeric} \C{authoryear} … \\
+\C{title} & 목록 제목 \\
+\C{lang} & \C{en} / \C{ko} / \C{en+ko} \\
+\C{print: false} & 출력 명령을 넣지 않음 \\
+\end{mk}
+\note{줄임: \C{bibliography: a.bib}. 본문에 \C{\textbackslash printbibliography}·\C{\textbackslash bibliography}·\C{thebibliography}를 직접 쓰면 출력 명령은 생략된다(\C{\textbackslash input}한 파일 안은 못 읽으니 \C{print: false}). biblatex를 이미 불렀으면 다시 안 부른다. \C{natbib=true}는 \C{authoryear}일 때만 $\to$ \C{[@t:키]}. 한국어 항목은 \C{.bib}에 \C{keywords=\{kobib\}}; \C{ko}·\C{en+ko}는 \C{kskoreanbib.sty}(TEXMFHOME 권장)와 biber. HTML은 \C{.bbl}이 필요하다(ksruncltex: \C{compileoption: --biber --copybbl}).}
+
+\section{부분 컴파일 · HTML}
+\begin{mk}{}
+명령 & 하는 일 \\
+\C{ndhmd4tex sub/ch1.md --inherit-meta main.md} & 장 하나만, 헤더는 main 것 \\
+\C{ndhmd2html 글.md} & HTML (\C{--xhtml} \C{--toc} \C{--css}) \\
+\C{--bbl f} \C{--bibharvest} & 문헌 목록을 \C{.bbl}에서 \\
+\end{mk}
+\note{\C{--inherit-meta}: main을 일반 변환처럼 해석하고, 서브 파일 자신의 front matter는 버린다. \C{title}·\C{subtitle}·\C{author}·\C{date}·\C{maketitle}·\C{tocloft}는 상속하지 않는다. \C{--syncinfo} 줄 번호는 그대로 정확. 상대 경로(\C{.bib} 등)는 컴파일 폴더 기준. \C{ndhmd2html}은 조판 전용 마크업과 raw LaTeX를 생략하고 수식은 MathJax에 맡긴다.}
+
+\columnbreak
+\section{각주 종류}
+\begin{mk}{}
+마크업 & 뜻 \\
+\C{\^{}[…]\{A\}} \C{[\^{}id]\{B\}} & 꼬리표로 종류 고름 \\
+\C{default} \C{side} \C{page} & \C{\textbackslash footnote} \C{\textbackslash sidefootnote} \C{\textbackslash pagenote} \\
+\C{sidepar} \C{sidebar} \C{verb} & 그 밖의 기본 등록 \\
+\C{\{A, opt=3\}} & \C{\textbackslash footnoteA[3]\{…\}} \\
+\C{\{sym\}} \C{\{sym=N\}} & \C{\textbackslash fnsymbol} 기호 각주 \\
+\end{mk}
+\note{\C{A} 같은 이름은 mapping \C{notes:}에 등록. 등록 안 된 \C{\{이름\}}은 경고 후 본문에 남는다.}
+
+\section{\C{||} · grid 표}
+\begin{mk}{}
+마크업 & 뜻 \\
+\C{||} (한 줄) & 문단을 나누지 않고 이어 붙임 \\
+빈 줄 + \C{||} & \C{\textbackslash\textbackslash}로 행 나눔 \\
+\C{+---+---+} & pandoc grid 표 \\
+\C{\{widths=dash\}} & 대시 수 비율 \C{X}열 \\
+\end{mk}
+\note{\C{||}는 앞뒤가 모두 평문일 때 앞 문단 끝에 \C{\%}를 붙여 \C{''라고}가 벌어지지 않게 한다. 이웃이 리스트·인용·헤딩이면 그냥 이어짐. grid 표는 병합(\C{\textbackslash SetCell})·여러 줄 셀·여러 줄 머리글 지원, 해석이 안 되면 경고 후 문단으로.}
+
+\columnbreak
+\section{\C{external} · \C{showexam}}
+\begin{mk}{}
+마크업 & 뜻 \\
+\C{```external tool=이름,} & 외부 도구의 결과를 \\
+\C{caption=, label=, width=} & 그림·글로 받아옴 \\
+\C{```showexam} & 원문과 결과를 나란히 \\
+\C{layout=stack} & 위아래 (\C{auto}: 긴 줄이면) \\
+\end{mk}
+\note{\textbf{\C{external}} 도구는 mapping \C{external:}에 등록한 것만, 실행은 \C{--external}을 줘야 한다. 결과는 \C{\_external/}에 해시로 캐시(있으면 옵션 없이도 씀). 그림(\C{pdf png svg jpg eps})은 그림 규칙을 타고, 글은 \C{text}/\C{markdown}/\C{tex}/\C{math}. 실패하면 변환이 멈춘다. \C{showexam}: \C{ratio} \C{style=verbatim|lstlisting} \C{align} \C{frame}도 가능.}
+
+\section{\C{RTLtypeset}}
+\begin{mk}{}
+키 & 뜻 \\
+\C{method} & \C{polyglossia}(기본) \C{babel} \C{primitive} \C{custom} \C{none} \\
+\C{detect} & \C{auto}(문자 범위) / \C{markup} \\
+\C{font} \C{hebrew: \{font,lang\}} & 글꼴 \\
+\C{:::\{hebrew\}} & RTL 블록 (아랍어는 \C{:::\{Arabic\}}) \\
+\end{mk}
+\note{원고에 RTL 구간이 없으면 아무 일도 안 한다. 블록 안의 LTR 구간은 \C{\textbackslash LR\{…\}}로 직접 감싼다.}
+
+\columnbreak
+\section{mapping 키 (번역 규칙)}
+\begin{mk}{}
+키 & 값 \\
+\C{quotes} & \C{tex}(기본) \C{unicode} 4글자 2글자 \\
+\C{tilde} & \C{latex}(기본) \C{pandoc} \C{multimarkdown} \C{wavedash} \\
+\C{wavedash} & \C{FF5E} 또는 \C{\textbackslash 매크로} \\
+\C{notes} & 각주 종류 등록 \\
+\C{tablewrap} & 열 너비 기준 (기본 70) \\
+\C{external} \C{showexam} & 도구 등록 / 배치 설정 \\
+\end{mk}
+\note{\C{mappingrule:}로 원고 안에서도 쓴다. \C{quotes}는 결과 문자만 바꾸고 여닫이 판정·이스케이프는 그대로. \C{\textbackslash verb|…|}는 본문 어디서나 그대로 통과한다.}
+
 \section{자주 밟는 함정}
 \begin{itemize}
 \item 리스트 항목 안 빈 줄 → 리스트 끊기고 평문으로
@@ -294,6 +388,8 @@
 \item \C{preamble:} 덮어씀 → \C{preamble+:} 쓸 것
 \item 캡션 없이 \C{label=}만 → \C{\textbackslash ref} 엉뚱한 값(\C{caption=} 함께)
 \item 그림 경로는 언제나 \C{/} (윈도우도)
+\item \C{||}를 문서 맨 처음·끝이나 연달아 쓰면 경고
+\item \C{\textbackslash input}한 파일 안의 \C{\textbackslash printbibliography} $\to$ 목록 두 번 (\C{print: false})
 \end{itemize}
 \note{전부 \textbf{\C{--lint}가 잡는다}.}
 
@@ -303,6 +399,8 @@
 \item 설정 확인/헤더가 안 먹는다 → \C{--dump-meta} (찾아본 경로도 보여줌)
 \item 한글이 깨진다 → \C{--encoding cp949}
 \item front matter 무시됨 → 들여쓰기 탭(\C{--lint})
+\item 장 하나만 컴파일했더니 헤더가 다르다 → \C{--inherit-meta}
+\item HTML 문헌 목록이 비었다 → \C{.bbl} 확인, \C{--bibharvest}
 \end{itemize}
 
 \end{multicols}
