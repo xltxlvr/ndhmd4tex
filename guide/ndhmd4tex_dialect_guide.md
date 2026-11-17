@@ -1144,6 +1144,7 @@ bibliography:
   style: authoryear
   title: 문헌 목록
   lang: en              # en | ko | en+ko — 한국어 문헌은 2.5.1
+  print: true           # false 이면 출력 명령을 넣지 않는다
 ```
 
 파일 이름만 적는 줄임 표기도 된다(`bibliography: a.bib`, `bibliography: [a.bib, b.bib]`,
@@ -1172,6 +1173,11 @@ bibliography:
   `\printbibliography`나 `\bibliography{…}`를 직접 쓴다. 이미 썼으면 출력 명령은 넣지 않고
   파일 선언만 한다. `thebibliography` 환경(17.2)이 있을 때도 마찬가지다.
   verbatim 안이나 주석 안에 있는 것은 쓴 것으로 치지 않는다.
+- **`print: false`**: 출력 명령을 넣지 않고 선언(`\addbibresource` 등)만 한다. 출력 명령이
+  `\input{…}` 같은 LaTeX 포함 파일 안에 있을 때 쓴다. ndhmd4tex은 `\input`된 파일 안을 읽지
+  않으므로 이 스위치가 없으면 목록이 두 번 나온다(`{{파일}}` 포함은 펼쳐서 검사하므로 필요 없다).
+  `bibliography:`의 `bibtex` 방식에서는 `\bibliographystyle`도 넣지 않으니 함께 직접 쓴다.
+  HTML(ndhmd2html)은 `\input` 안을 따라가지 않으므로 목록을 문서 끝에 놓는다.
 - `\nocite{*}`가 필요하면 본문에 직접 쓴다. 선언한 `.bib`가 원고 폴더에 없으면 경고하지만
   (TeX가 다른 경로에서 찾을 수도 있다) 변환은 계속한다.
 - 컴파일할 때 biber나 bibtex를 돌리는 것은 컴파일 도구의 몫이다. `--latexmk`는 알아서 고른다.

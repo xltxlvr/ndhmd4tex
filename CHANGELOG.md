@@ -1,5 +1,13 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.24.3
+
+- `bibliography:` 에 `print: false` 를 추가했다. 문헌 목록 출력 명령을 넣지 않고 선언만 한다. `\input` 한 LaTeX 파일 안에 `\printbibliography` 가 있을 때 목록이 두 번 나오는 것을 막는다.
+
+## ndhmd2html 0.5.2 보정 (2)
+
+- 사용자가 `\printbibliography` 를 본문에 여러 번 쓴 경우(`en+ko` 분할 등) HTML 에서 목록이 그 횟수만큼 중복되던 문제. HTML 은 키워드로 거르지 않으므로 전체 목록을 첫 자리에 한 번만 놓는다.
+
 ## ndhmd2html 0.5.2 보정
 
 - `--bibharvest` 가 돌리는 texlua 의 출력을 UTF-8 로 읽는다(`errors="replace"`). 한글 경고가 잘못된 바이트를 포함하면 `UnicodeDecodeError` 로 죽던 문제.

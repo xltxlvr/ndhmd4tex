@@ -685,6 +685,7 @@ showexam:
 #                      style: authoryear
 #                      title: 문헌 목록
 #                      lang: en              # en | ko | en+ko (2.5.1; ko 는 kskoreanbib 사용)
+#                      print: true           # false 이면 출력 명령을 넣지 않음(\input 파일 안에 둘 때)
 #
 # {{filename}} 파일 포함은 설정이 아니라 본문 문법이다(20장).
 # ══════════════════════════════════════════════════════════════════

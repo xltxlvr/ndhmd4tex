@@ -1225,6 +1225,7 @@ bibliography:
   style: authoryear
   title: References
   lang: en              # en | ko | en+ko — Korean references: 2.5.1
+  print: true           # false: do not add the output command
 ```
 
 A short form with just the file names also works (`bibliography: a.bib`,
@@ -1260,6 +1261,12 @@ written with the extension (current TeX distributions' bibtex reads it as is).
   the output command is not added and only the file declaration is made. The same holds
   when a `thebibliography` environment (17.2) is present. Occurrences inside verbatim or
   comments do not count.
+- **`print: false`**: adds no output command, only the declaration (`\addbibresource` etc.).
+  Use it when the output command lives in a LaTeX-included file (`\input{…}`). ndhmd4tex
+  does not read inside `\input` files, so without this switch the list prints twice
+  (`{{file}}` includes are expanded and checked, so they do not need it). In bibtex mode
+  `\bibliographystyle` is not added either, so write it yourself. ndhmd2html does not follow
+  `\input`, so it places the list at the end of the document.
 - If you want `\nocite{*}`, write it in the body. A declared `.bib` that is missing from
   the manuscript folder produces a warning (TeX may still find it elsewhere); the
   conversion goes on.

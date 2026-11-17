@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.24.2"
+__version__ = "0.24.3"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -7105,7 +7105,7 @@ def _rtl_block_delims(script, cfg):
 #     title: 문헌 목록
 #     lang: en          # en | ko | en+ko  — ko 이면 kskoreanbib 를 쓴다(아래)
 _bib_warned = set()
-_BIB_KEYS = ("backend", "resource", "style", "title", "lang")
+_BIB_KEYS = ("backend", "resource", "style", "title", "lang", "print")
 
 
 def _bib_warn(msg):
@@ -7150,7 +7150,8 @@ def resolve_bibliography(meta, pandoc=False, mmd=False):
     if pandoc or mmd:
         _bib_warn("bibliography: 는 --pandoc/--mmd 모드에서는 처리하지 않습니다. 무시합니다.")
         return None
-    spec = {"backend": None, "resource": [], "style": None, "title": None, "lang": None}
+    spec = {"backend": None, "resource": [], "style": None, "title": None, "lang": None,
+            "print": True}
     if isinstance(raw, dict):
         for k, v in raw.items():
             if k in _BIB_KEYS:
@@ -7201,6 +7202,18 @@ def resolve_bibliography(meta, pandoc=False, mmd=False):
     else:
         mode = "biblatex" if loaded else "bibtex"
 
+    pr = spec["print"]
+    if isinstance(pr, str):
+        low = pr.strip().lower()
+        if low in ("false", "no", "off", "0"):
+            pr = False
+        elif low in ("true", "yes", "on", "1", ""):
+            pr = True
+        else:
+            _bib_warn(f"bibliography 의 print '{pr}' 을(를) 알 수 없어 true 로 둡니다. (true | false)")
+            pr = True
+    print_out = bool(pr) if pr is not None else True
+
     style = str(spec["style"]).strip() if spec["style"] else None
     title = str(spec["title"]).strip() if spec["title"] else None
 
@@ -7240,7 +7253,7 @@ def resolve_bibliography(meta, pandoc=False, mmd=False):
                   "(스타일은 \\usepackage[style=…]{biblatex} 에서 정하세요.)")
     return {"mode": mode, "resources": names, "backend": backend, "style": style,
             "title": title, "loaded": loaded, "natbib": natbib,
-            "lang": lang, "use_kobib": use_kobib, "kstyle": kstyle}
+            "lang": lang, "use_kobib": use_kobib, "kstyle": kstyle, "print": print_out}
 
 
 KOBIB_FILES = ("kskoreanbib.sty", "korean.lbx")
@@ -7320,6 +7333,8 @@ def bibliography_body_lines(body_tex, meta, pandoc=False, mmd=False):
     plan = resolve_bibliography(meta, pandoc, mmd)
     if not plan:
         return []
+    if not plan["print"]:
+        return []       # print: false — 출력 명령은 사용자가 직접(\input 한 파일 안 등) 둔다
     vis = _bib_visible(body_tex)
     if _BIB_USER_OUTPUT_RE.search(vis):
         return []

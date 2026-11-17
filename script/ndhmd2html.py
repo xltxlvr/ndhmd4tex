@@ -2006,9 +2006,16 @@ def number_notes(html, ctx):
 
 
 def resolve_tokens(html, ctx, title_html, toc):
+    placed = []
+
     def place(m):
         f = m.group(1).split(TOK_S)
         if f[0] == "bibliography":
+            # \printbibliography 를 여러 번 쓴 문서(en+ko 분할 등): HTML 은 키워드로 거르지 않으므로
+            # 전체 목록을 첫 자리에 한 번만 놓고 나머지는 비운다(이중 출력 방지).
+            if placed:
+                return ""
+            placed.append(1)
             return ctx.bib_html
         return toc if f[0] == "toc" else title_html if f[0] == "titleblock" else m.group(0)
     html = number_notes(_TOK_RE.sub(place, html), ctx)
