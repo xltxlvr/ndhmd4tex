@@ -1279,7 +1279,10 @@ written with the extension (current TeX distributions' bibtex reads it as is).
   biber/bibtex first to generate the reference list." A bibtex-style `.bbl` is read directly; a
   biber-style one is read through `<name>-thebib.tex` made by `bbl2bibitem.lua`
   (`--bibharvest` makes it). `[@key]` citations link to the list entries and show `[1]` for numeric
-  styles, `Knuth (1984)` / `(Knuth, 1984)` for author-year.
+  styles, `Knuth (1984)` / `(Knuth, 1984)` for author-year. If a reference contains math (`$…$`), the
+  harvest only leaves a `[[MATH?]]` marker, but ndhmd2html matches it against the field text in the
+  `.bbl` and fills in the math (no extra compile needed). If the match fails it leaves `⟨수식⟩` and
+  warns; math outside `$` (a bare `\alpha`, say) cannot be restored.
 - For Korean references (`lang: ko`, `en+ko`) see 2.5.1.
 - This is a document-level setting, so it goes in the front matter (or in a header
   inherited with `setup:`), not in a mapping.
@@ -1319,6 +1322,9 @@ bibliography:
   `authoryear-comp`) are supported; anything else warns and falls back to `numeric`. With
   authoryear, `natbib=true` is passed, so `[@t:key]` and `[@p:key]` work; numeric has no natbib
   commands.
+- **Korean formatting under numeric**: `kobib` entries join names with `·` and use `외` for "et al.". Titles
+  are `「title」,` for articles and `『title』` for every other type (`book`, `booklet`, …); journal
+  names take `『』`, and volume/number print as `제3권 2호`.
 - **`ko` and `en+ko` use biber.** If you wrote `backend: bibtex`, it warns and goes the biblatex
   way. Running biber while compiling is up to `--latexmk` or `compileoption: --biber`.
 - **Load kotex yourself.** `preamble:` must contain `\usepackage{kotex}` (or use the oblivoir

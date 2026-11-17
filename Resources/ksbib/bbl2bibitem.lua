@@ -98,12 +98,18 @@ if BBLH_INSIDE then
           local c = n.char
           local fs = fontstyle(n.font)
           if fs.math then
-            -- 수학 글꼴 글리프는 TeX 소스로 복원할 수 없다: 연속 구간마다 표지 하나
-            if not out.inmathfont then
+            -- 수학 글꼴 글리프는 TeX 소스로 복원할 수 없다.
+            -- 수식($…$) 안이면 수식 전체를 닫는 지점에서 표지 하나로 바꾼다(아래 MATH 노드).
+            -- 수식 노드 밖이면 연속 구간마다 표지 하나.
+            out.hasmath = true
+            if (out.mdepth or 0) > 0 then
+              out.mhas = true
+            elseif not out.inmathfont then
               out.inmathfont = true
-              out.hasmath = true
               out[#out + 1] = { raw = "[[MATH?]]" }
             end
+          elseif c == 0xF0000 then
+            -- luatexko 가 한글 음절 뒤에 넣는 보이지 않는 표지 글리프(U+F0000): 본문이 아니다
           elseif c and c > 0 then
             out.inmathfont = false
             local st = fs.key
@@ -142,7 +148,22 @@ if BBLH_INSIDE then
       elseif id == DISC then
         if n.replace then collect(n.replace, out) end
       elseif id == MATH then
-        -- (url 패키지도 수식 모드를 쓰므로 수식 노드 자체는 무시하고 글리프의 글꼴로 판단한다)
+        -- (url 패키지도 수식 모드를 쓰므로 수식 노드만으로는 수식이라 할 수 없다:
+        --  on..off 사이에 수학 글꼴 글리프가 하나라도 있을 때만 수식 한 덩어리로 본다)
+        if n.subtype == 0 then
+          if (out.mdepth or 0) == 0 then out.mstart = #out + 1; out.mhas = false end
+          out.mdepth = (out.mdepth or 0) + 1
+        elseif (out.mdepth or 0) > 0 then
+          out.mdepth = out.mdepth - 1
+          if out.mdepth == 0 then
+            if out.mhas then
+              for k = #out, out.mstart, -1 do out[k] = nil end
+              out[#out + 1] = { raw = "[[MATH?]]" }
+              out.inmathfont = true
+            end
+            out.mhas = false
+          end
+        end
       end
     end
     return out
@@ -256,13 +277,18 @@ if BBLH_INSIDE then
     -- \TeX 로고는 글리프 TEX (E 가 내려앉은 모양)로 나온다 → 되돌린다
     res = res:gsub("%f[%u]TEX%f[^%u]", "\\TeX{}")
     if list.hasmath then
-      warn("수식이 포함된 항목이 있습니다 (수식은 복원되지 않음): " .. res:sub(1, 60))
+      -- 바이트로 자르면 한글이 반쪽이 되어 잘못된 UTF-8 이 나온다: 글자 단위로 자른다
+    local cut = utf8.offset(res, 31)
+    warn("수식이 포함된 항목이 있습니다 (수식은 복원되지 않음): " .. (cut and res:sub(1, cut - 1) or res))
     end
     return res
   end
 
   -- 문단 훅 ---------------------------------------------------------------
   local function filter(head)
+    -- 출력 루틴 안에서 조판되는 문단(쪽 번호, 머리말/꼬리말)은 항목이 아니다.
+    -- 항목 사이에서 쪽이 넘어가면 쪽 번호 문단이 키를 가로채 "1" 같은 항목이 만들어진다.
+    if status and status.output_active then return true end
     if on and (curkey or curlabel) then
       local list = collect(head, {})
       local txt = render(list)
@@ -275,8 +301,10 @@ if BBLH_INSIDE then
           if not entries[curkey] then order[#order + 1] = curkey end
           entries[curkey] = txt
         end
+        curkey, curlabel = nil, nil
       end
-      curkey, curlabel = nil, nil
+      -- 내용이 빈 문단(\endgraf 가 만든 빈 단락 등)은 키를 소모하지 않는다:
+      -- 키를 지워 버리면 뒤따르는 진짜 항목이 키 없이 처리되어 빠진다
     end
     return true
   end
@@ -348,19 +376,21 @@ local function usage()
   --style STYLE      numeric | authoryear | auto (기본 auto: .bbl 에 labelnumber 가 있으면 numeric)
   --engine NAME      수확용 컴파일러 (기본 lualatex)
   --keep             임시 디렉터리를 지우지 않음 (디버깅)
+  --single           \printbibliography 를 하나로 합쳐 수확 (en+ko 에서 항목이 빠질 때)
 ]])
   os.exit(1)
 end
 
 local args = { }
 local i = 1
-local texfile, outfile, style, engine, keep = nil, nil, "auto", "lualatex", false
+local texfile, outfile, style, engine, keep, forcesingle = nil, nil, "auto", "lualatex", false, false
 while arg[i] do
   local a = arg[i]
   if a == "-o" then i = i + 1; outfile = arg[i]
   elseif a == "--style" then i = i + 1; style = arg[i]
   elseif a == "--engine" then i = i + 1; engine = arg[i]
   elseif a == "--keep" then keep = true
+  elseif a == "--single" then forcesingle = true
   elseif a == "-h" or a == "--help" then usage()
   elseif not texfile then texfile = a
   else usage() end
@@ -390,16 +420,25 @@ if not exists(bbl) then
 end
 local bf = io.open(bbl, "rb"); local bbltext = bf:read("*a"); bf:close()
 
-local jobname = base .. "-bibharvest"
-local tmp = (os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"):gsub("\\", "/") .. "/" .. jobname .. "-" .. os.time()
-assert(lfs.mkdir(tmp))
-if outfile == nil then outfile = base .. "-thebib.tex" end
-local rawout = tmp .. "/" .. jobname .. ".out"
-
-local wf = assert(io.open(tmp .. "/" .. jobname .. ".bbl", "wb")); wf:write(bbltext); wf:close()
-
 local function q(s) return (s:gsub("\\", "/")) end
-local wrapper = string.format([[
+if outfile == nil then outfile = base .. "-thebib.tex" end
+
+-- 수확 한 번: single=true 이면 사용자의 \printbibliography 들을 하나로 합쳐 모든 항목을 한 번에 찍는다
+local runno = 0
+local function harvest(single)
+  runno = runno + 1
+  local jobname = base .. "-bibharvest"
+  local tmp = (os.getenv("TMPDIR") or os.getenv("TEMP") or "/tmp"):gsub("\\", "/") .. "/" .. jobname .. "-" .. os.time() .. "-" .. runno
+  assert(lfs.mkdir(tmp))
+  local rawout = tmp .. "/" .. jobname .. ".out"
+  local wf = assert(io.open(tmp .. "/" .. jobname .. ".bbl", "wb")); wf:write(bbltext); wf:close()
+  local merge = single and [[
+  \let\bblorigpb\printbibliography
+  \newtoggle{bblprinted}
+  \renewrobustcmd*{\printbibliography}[1][]{\iftoggle{bblprinted}{}{\toggletrue{bblprinted}\bblorigpb[heading=none]}}
+  \renewrobustcmd*{\printbibheading}[1][]{}
+]] or ""
+  local wrapper = string.format([[
 \RequirePackage{etoolbox}
 \directlua{BBLH_INSIDE=true BBLH_OPTS={style="%s",outfile="%s"} dofile("%s")}
 \AtEndPreamble{%%
@@ -408,27 +447,60 @@ local wrapper = string.format([[
     {\directlua{BBLH.begin()}}
     {\endgraf\directlua{BBLH.finish()}}
     {\endgraf\directlua{BBLH.key("\thefield{entrykey}")}}%%
-  \AtEndDocument{%%
+%s  \AtEndDocument{%%
     \iftoggle{blx@labelnumber}{\directlua{BBLH.setstyle("numeric")}}{\directlua{BBLH.setstyle("authoryear")}}%%
     \directlua{BBLH.labelrun()}}%%
 }
 \input{%s}
-]], style, q(rawout), q(script), q(file))
-local wr = assert(io.open(tmp .. "/" .. jobname .. ".tex", "wb")); wr:write(wrapper); wr:close()
-
-local cmd = string.format('%s -interaction=batchmode -halt-on-error -output-directory="%s" "%s/%s.tex" > "%s/run.out" 2>&1',
-  engine, tmp, tmp, jobname, tmp)
-os.execute(cmd)
-
-local result = io.open(rawout, "rb")
-if not result then
-  io.stderr:write("수확 실패. 로그: " .. tmp .. "/" .. jobname .. ".log\n")
-  os.exit(2)
+]], style, q(rawout), q(script), merge, q(file))
+  local wr = assert(io.open(tmp .. "/" .. jobname .. ".tex", "wb")); wr:write(wrapper); wr:close()
+  local cmd = string.format('%s -interaction=batchmode -halt-on-error -output-directory="%s" "%s/%s.tex" > "%s/run.out" 2>&1',
+    engine, tmp, tmp, jobname, tmp)
+  os.execute(cmd)
+  local result = io.open(rawout, "rb")
+  local text, warns = nil, ""
+  if result then
+    text = result:read("*a"); result:close()
+    local wl = io.open(rawout .. ".warnings", "rb")
+    if wl then warns = wl:read("*a"); wl:close() end
+  else
+    io.stderr:write("수확 실패. 로그: " .. tmp .. "/" .. jobname .. ".log\n")
+  end
+  if keep then io.stderr:write("임시 디렉터리: " .. tmp .. "\n")
+  else
+    for f in lfs.dir(tmp) do if f ~= "." and f ~= ".." then os.remove(tmp .. "/" .. f) end end
+    lfs.rmdir(tmp)
+  end
+  return text, warns
 end
-local text = result:read("*a"); result:close()
-local wl = io.open(rawout .. ".warnings", "rb")
-local warns = wl and wl:read("*a") or ""
-if wl then wl:close() end
+
+local text, warns = harvest(forcesingle)
+if not text then os.exit(2) end
+
+-- .bbl 의 항목과 대조: 빠진 것이 있으면 한 목록 방식으로 다시 수확해 보충한다
+-- (en+ko 처럼 \printbibliography 를 여러 번 부르는 문서에서 항목이 빠지는 경우가 보고됨)
+local function bibkeys(t, pat) local ks, seen = {}, {} for k in t:gmatch(pat) do if not seen[k] then seen[k] = true; ks[#ks + 1] = k end end return ks, seen end
+local _, have = bibkeys(text, "\\bibitem%b[]{([^}]+)}")
+local _, have2 = bibkeys(text, "\\bibitem{([^}]+)}")
+for k in pairs(have2) do have[k] = true end
+local want = bibkeys(bbltext, "\\entry{([^}]+)}{")
+local lost = {}
+for _, k in ipairs(want) do if not have[k] then lost[#lost + 1] = k end end
+if #lost > 0 and not forcesingle then
+  io.stderr:write("경고: 첫 수확에서 빠진 항목: " .. table.concat(lost, ", ") .. " → 한 목록 방식으로 재수확합니다.\n")
+  local t2 = harvest(true)
+  if t2 then
+    local add = {}
+    for _, k in ipairs(lost) do
+      local item = t2:match("(\\bibitem[^\n]*{" .. k:gsub("%p", "%%%0") .. "}.-)\n\\bibitem") or t2:match("(\\bibitem[^\n]*{" .. k:gsub("%p", "%%%0") .. "}.-)\n\\end{thebibliography}")
+      if item then add[#add + 1] = item .. "\n" end
+    end
+    if #add > 0 then
+      text = text:gsub("\\end{thebibliography}", function() return table.concat(add) .. "\\end{thebibliography}" end, 1)
+      io.stderr:write("보충한 항목: " .. #add .. " (목록 끝에 덧붙였으므로 순서가 PDF 와 다를 수 있습니다)\n")
+    end
+  end
+end
 
 if outfile == "-" then
   io.write(text)
@@ -438,11 +510,3 @@ else
 end
 if warns ~= "" then io.stderr:write("경고:\n" .. warns) end
 
-if not keep then
-  for f in lfs.dir(tmp) do
-    if f ~= "." and f ~= ".." then os.remove(tmp .. "/" .. f) end
-  end
-  lfs.rmdir(tmp)
-else
-  io.stderr:write("임시 디렉터리: " .. tmp .. "\n")
-end

@@ -1189,6 +1189,9 @@ bibliography:
   안내를 넣는다. bibtex 형식 `.bbl`은 바로 읽고, biber 형식은 `bbl2bibitem.lua`가 만든
   `<이름>-thebib.tex`를 읽는다(`--bibharvest`가 만든다). 본문의 `[@키]`는 목록 항목으로
   링크되며 번호 방식은 `[1]`, 저자-연도는 `Knuth (1984)`, `(Knuth, 1984)`로 나간다.
+  서지 정보에 수식(`$…$`)이 있으면 수확본에는 `[[MATH?]]` 표지만 남지만, ndhmd2html이 `.bbl`의
+  필드 원문과 맞춰 보고 수식을 채운다(추가 컴파일은 필요 없다). 필드 모양이 달라져 맞추지 못하면
+  `⟨수식⟩`으로 남기고 경고한다. `$` 밖의 수식(`\alpha` 등)은 복원하지 못한다.
 - 한국어 문헌(`lang: ko`, `en+ko`)은 2.5.1.
 - 이 키는 문서 단위 설정이라 매핑이 아니라 front matter(또는 `setup:`으로 물려주는 헤더)에 쓴다.
 
@@ -1226,6 +1229,9 @@ bibliography:
 - **`style`**: `numeric`(생략하면 이쪽)과 `authoryear`(`authoryear-comp` 등 계열 포함)만
   지원한다. 다른 값은 경고하고 `numeric`으로 둔다. authoryear에서는 `natbib=true`가 들어가
   `[@t:키]`, `[@p:키]`가 동작하고, numeric에서는 natbib 명령이 없다.
+- **번호 방식(numeric)의 한국어 서식**: `kobib` 항목은 이름 사이를 `·`로 잇고 4명을 넘으면 `외`를 붙인다.
+  제목은 논문(`article`)이 `「제목」,`, 그 밖의 유형(`book`, `booklet` 등 단행본)이 `『제목』`이고,
+  학술지명은 `『』`, 권호는 `제3권 2호` 꼴이다.
 - **`ko`와 `en+ko`는 biber를 쓴다.** `backend: bibtex`라고 적었으면 경고하고 biblatex 방식으로
   처리한다. 컴파일할 때 biber를 돌리는 것은 `--latexmk`나 `compileoption: --biber` 쪽의 몫이다.
 - **kotex는 직접 불러 둔다.** `preamble:`에 `\usepackage{kotex}`(또는 oblivoir 클래스)가 있어야

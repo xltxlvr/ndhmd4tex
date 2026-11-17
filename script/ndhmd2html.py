@@ -124,7 +124,7 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.5.0"
+__version__ = "0.5.2"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -1495,6 +1495,132 @@ def _bib_missing(ctx, why):
     return '<section class="bibliography bibliography-missing" role="doc-bibliography">\n<p class="bib-missing">%s</p>\n</section>' % esc(text)
 
 
+# ---- biber 수확본의 수식 복원 -------------------------------------------------
+# 수확기는 수학 글꼴 글리프를 TeX 소스로 되돌릴 수 없어 [[MATH?]] 표지만 남긴다.
+# .bbl 의 필드에는 원문($…$)이 그대로 있으므로, 필드의 "글 + 수식 자리" 모양을 수확된 본문과 맞춰
+# 표지를 원문으로 채운다. 추가 LaTeX 패스는 필요 없다.
+_MATHSPAN_RE = re.compile(r"(?<!\\)\$(?:\\.|[^$\\])+\$|\\\((?:.|\n)*?\\\)", re.S)
+_MATH_MARK = "[[MATH?]]"
+
+
+def _brace_group(s, i):
+    """s[i] == '{' 에서 짝이 맞는 '}' 까지. (안쪽, 끝 다음 위치)"""
+    depth, j = 0, i
+    while j < len(s):
+        c = s[j]
+        if c == "\\":
+            j += 2
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return s[i + 1:j], j + 1
+        j += 1
+    return None, len(s)
+
+
+def _biber_math_fields(text):
+    """biber .bbl -> {키: [수식을 포함한 필드 값, …]}"""
+    out = {}
+    for m in re.finditer(r"\\entry\{([^}]+)\}\{[^}]*\}(?:\{[^}]*\}){1,2}(.*?)\\endentry", text, re.S):
+        key, seg = m.group(1), m.group(2)
+        vals = []
+        for fm in re.finditer(r"\\field\{[^}]+\}\{", seg):
+            v, _ = _brace_group(seg, fm.end() - 1)
+            if v and _MATHSPAN_RE.search(v):
+                vals.append(v)
+        for lm in re.finditer(r"\\list\{[^}]+\}\{\d+\}\{", seg):
+            blk, _ = _brace_group(seg, lm.end() - 1)
+            pos = 0
+            while blk:
+                i = blk.find("{", pos)
+                if i < 0:
+                    break
+                g, pos = _brace_group(blk, i)
+                if g and _MATHSPAN_RE.search(g):
+                    vals.append(g)
+        if vals:
+            out[key.strip()] = vals
+    return out
+
+
+def _mnorm(t):
+    """맞춰 보기용 정규화: 제어 단어·기호·공백을 버리고 글자만 남긴다(수식 자리 \\x00 은 유지)."""
+    t = re.sub(r"\\[A-Za-z]+\*?", "", t)
+    t = unicodedata.normalize("NFKD", t)
+    return "".join(c.lower() for c in t
+                   if c == "\x00" or (c.isalnum() and unicodedata.category(c) != "Mn"))
+
+
+def _skeletons(value):
+    """필드 값 -> [(골격 문자열, [채울 원문 묶음…]), …] (수식 사이가 공백뿐이면 한 표지로 합친 변형도)"""
+    spans, parts, last = [], [], 0
+    for m in _MATHSPAN_RE.finditer(value):
+        parts.append(value[last:m.start()])
+        spans.append(re.sub(r"\s+", " ", m.group(0)))
+        last = m.end()
+    parts.append(value[last:])
+    res = []
+    # 변형 A: 수식마다 표지 하나
+    res.append((_mnorm("\x00".join(parts)), [[x] for x in spans]))
+    # 변형 B: 사이 글이 공백뿐인 수식은 표지 하나로 합쳐진다(수확기가 수학 글꼴 연속 구간을 묶음)
+    groups, gp = [[spans[0]]], [parts[0]]
+    for i in range(1, len(spans)):
+        if parts[i].strip() == "":
+            groups[-1].append(spans[i])
+        else:
+            groups.append([spans[i]])
+            gp.append(parts[i])
+    if len(groups) != len(spans):
+        gp.append(parts[-1])
+        res.append((_mnorm("\x00".join(gp)), groups))
+    return res
+
+
+def _bib_math_fill(items, bbltext, ctx):
+    """items 의 [[MATH?]] 를 .bbl 원문으로 채운다. 못 채운 항목은 경고."""
+    fields = _biber_math_fields(bbltext)
+    out, bad = [], []
+    for key, label, body in items:
+        n = body.count(_MATH_MARK)
+        if not n:
+            out.append((key, label, body))
+            continue
+        bn = _mnorm(body.replace(_MATH_MARK, "\x00"))
+        filled = {}
+        for value in fields.get(key.strip(), []):
+            done = False
+            for skel, groups in _skeletons(value):
+                if "\x00" not in skel:
+                    continue
+                pos = bn.find(skel)
+                while pos >= 0:
+                    idx = bn[:pos].count("\x00")
+                    targets = range(idx, idx + len(groups))
+                    if not any(t in filled for t in targets):
+                        for t, g in zip(targets, groups):
+                            filled[t] = " ".join(g)
+                        done = True
+                        break
+                    pos = bn.find(skel, pos + 1)
+                if done:
+                    break
+        pieces = body.split(_MATH_MARK)
+        rebuilt = pieces[0]
+        for i in range(n):
+            rebuilt += filled.get(i, "\u27e8수식\u27e9") + pieces[i + 1]
+        if len(filled) < n:
+            bad.append(key.strip())
+        out.append((key, label, rebuilt))
+    if bad:
+        ctx.warn("수식을 .bbl 원문에서 찾아 채우지 못한 항목: " + ", ".join(bad)
+                 + " (⟨수식⟩ 으로 남습니다. \\alpha 처럼 $ 밖의 수식이거나 필드 모양이 달라진 경우일 수 있습니다.)")
+    return out
+
+
+
 def bibliography_html(ctx, source_path):
     """bibliography: 가 있을 때의 문헌 목록 <section>. 못 만들면 안내 문구 목록."""
     opts = ctx.opts
@@ -1528,7 +1654,7 @@ def bibliography_html(ctx, source_path):
             else:
                 try:
                     r = subprocess.run([texlua, str(script), str(texfile), "-o", str(harvested)],
-                                       capture_output=True, text=True, timeout=600)
+                                       capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600)
                     if r.returncode != 0 or not harvested.is_file():
                         ctx.warn("--bibharvest 실패: " + (r.stderr or "").strip().splitlines()[-1:][0]
                                  if (r.stderr or "").strip() else "--bibharvest 실패")
@@ -1543,9 +1669,19 @@ def bibliography_html(ctx, source_path):
         if harvested.stat().st_mtime < bbl.stat().st_mtime:
             ctx.warn(f"{harvested.name} 이(가) {bbl.name} 보다 오래됐습니다. --bibharvest 로 다시 만드세요.")
         source = harvested.read_text(encoding="utf-8", errors="replace")
-        if "[[MATH?]]" in source:
-            ctx.warn("문헌 목록에 수식이 있어 복원되지 않았습니다([[MATH?]]).")
     items = _bbl_items(source)
+    if "\\begin{thebibliography}" not in text and any(_MATH_MARK in b for _, _, b in items):
+        items = _bib_math_fill(items, text, ctx)
+    if "\\begin{thebibliography}" not in text:
+        # biber .bbl 의 항목 키와 수확 결과를 맞춰 본다: 빠진 키가 있으면 수확본이 낡은 것이다
+        want = re.findall(r"\\entry\{([^}]+)\}\{", text)
+        have = {k.strip() for k, _, _ in items}
+        lost = [k for k in want if k not in have]
+        if lost:
+            ctx.warn(f"{bbl.name} 에는 있으나 {bbl.stem}-thebib.tex 에서 빠진 키: {', '.join(lost)}. "
+                     f"수확본이 낡았을 수 있으니 --bibharvest 로 다시 만드세요."
+                     + (" (방금 만든 결과에도 없다면 수확이 그 항목을 놓친 것입니다: "
+                        f"{bbl.stem}-thebib.tex.warnings 를 확인하세요.)" if getattr(opts, "bibharvest", False) else ""))
     if not items:
         ctx.warn(f"{bbl.name} 에서 문헌 항목을 찾지 못했습니다.")
         return _bib_missing(ctx, "fail")
@@ -1729,7 +1865,7 @@ def _cite_html(variant, keys, ctx):
     parts = []
     for key, info in items:
         if info is None:
-            parts.append(esc(key))
+            parts.append('<span class="cite-missing" title="문헌 목록에 없는 키">%s</span>' % esc(key))
         else:
             parts.append(link(key, esc(info[1] + ", " + info[2]) if isinstance(info, tuple) else esc(info)))
     return '<span class="citation cite-%s">[%s]</span>' % (esc_attr(variant), ", ".join(parts))
@@ -2026,6 +2162,7 @@ p.bibitem { padding-left: 2.5em; text-indent: -2.5em; }
 p.bibitem.ay { padding-left: 2em; text-indent: -2em; }
 .bibliography-title { font-size: 1.3em; }
 .bib-missing { font-style: italic; color: #666; }
+.cite-missing { color: #b00; }
 span.bib-label { display: inline-block; min-width: 2.5em; text-indent: 0; }
 span.citation { }
 
