@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.24.3"
+__version__ = "0.25.0"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -769,7 +769,7 @@ def load_config(path):
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|$)", re.DOTALL)
 
 
-def split_frontmatter(text, source=None):
+def split_frontmatter(text, source=None, lenient=False):
     """맨 앞의 --- ... --- 블록을 front matter로 떼어낸다.
 
     YAML이 깨졌을 때 조용히 {} 를 돌려주면 최악이다. 헤더가 통째로 본문으로
@@ -784,10 +784,16 @@ def split_frontmatter(text, source=None):
     try:
         meta = yaml.safe_load(m.group(1)) or {}
     except yaml.YAMLError as e:
+        if lenient:
+            # --inherit-meta: 이 front matter 는 어차피 버린다. 깨져 있어도 떼어 내기만 한다
+            # (그래야 줄 수가 .nmdsync 의 원본 줄 번호 오프셋에 그대로 반영된다).
+            return {}, text[m.end():]
         print(f"경고: front matter의 YAML을 읽지 못했습니다{where}. "
               f"헤더 없는 문서로 처리합니다.\n  {e}", file=sys.stderr)
         return {}, text
     if not isinstance(meta, dict):
+        if lenient:
+            return {}, text[m.end():]
         print(f"경고: front matter가 key: value 형태가 아닙니다{where}. "
               f"헤더 없는 문서로 처리합니다.", file=sys.stderr)
         return {}, text
@@ -1568,6 +1574,45 @@ def resolve_meta(text, src_path, cli_setup=None, cli_default=None):
     chain = []
     meta = resolve_setup(raw_meta, src_path.parent, seen, 0, chain)
     return meta, body, chain
+
+
+# --inherit-meta: 서브 파일만 컴파일할 때 main 파일의 헤더를 그대로 가져온다.
+#   - main 은 main 을 일반 변환할 때와 똑같이 해석한다(setup 체인, 기본 헤더 포함).
+#   - 서브 파일 자신의 front matter 는 버린다. {{포함}}된 파일의 front matter 가 무시되는
+#     것과 같다. 떼어 내기만 하므로 줄 수는 원본 줄 번호 오프셋(.nmdsync)에 그대로 잡힌다.
+#   - 단독 컴파일에 맞지 않는 키(표지·목차를 만드는 것)는 상속하지 않는다.
+INHERIT_EXCLUDED_KEYS = ("title", "subtitle", "author", "date", "maketitle", "tocloft")
+_INHERIT_PATH_RE = re.compile(r"\\(?:input|include|subfile|graphicspath|addbibresource|bibliography)\b")
+
+
+def resolve_inherited_meta(main_path, sub_text, sub_path, cli_setup=None, cli_default=None):
+    """(meta, chain, 버려진 서브 파일 키 목록, 경고 목록) 을 돌려준다."""
+    main_path = Path(main_path)
+    main_text = read_source_text(main_path)
+    meta, _body, chain = resolve_meta(main_text, main_path, cli_setup=cli_setup, cli_default=cli_default)
+    meta = dict(meta)
+    for k in INHERIT_EXCLUDED_KEYS:
+        meta.pop(k, None)
+    ignored = []
+    m = FRONTMATTER_RE.match(sub_text)
+    if m:
+        try:
+            own = yaml.safe_load(m.group(1)) or {}
+            if isinstance(own, dict):
+                ignored = [str(k) for k in own]
+        except yaml.YAMLError:
+            ignored = ["(읽을 수 없는 front matter)"]
+    warns = []
+    try:
+        differ = main_path.resolve().parent != Path(sub_path).resolve().parent
+    except OSError:
+        differ = False
+    if differ:
+        pre = "\n".join(str(meta.get(k, "")) for k in ("preamble", "beforestart"))
+        if meta.get("bibliography") or _INHERIT_PATH_RE.search(pre):
+            warns.append(f"main({main_path.parent}) 과 입력 파일의 폴더가 달라, 상속한 헤더의 상대 경로"
+                         f"(.bib, \\input, 그림 폴더 등)는 컴파일하는 폴더를 기준으로 찾습니다.")
+    return meta, chain, ignored, warns
 
 
 # --------------------------------------------------------------------------
@@ -7900,7 +7945,8 @@ def convert_mmd(source_text, include_base=None, meta=None, extra_args=None, cfg=
     return build_document(out, meta, cfg, mmd=True)
 
 
-def convert(source_text, cfg, include_base=None, meta=None, body_only=False, source_path=None):
+def convert(source_text, cfg, include_base=None, meta=None, body_only=False, source_path=None,
+            lenient_frontmatter=False):
     cfg = dict(cfg)
 
     # {{filename}} 포함 지시자 해석 — 재귀적으로(20장) 해석되며, 순환
@@ -7913,7 +7959,7 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
     # 시도에서 바로 잡을 수 있다(resolve_includes()의 self_path 참고).
     base_dir = Path(include_base) if include_base is not None else Path(".")
 
-    raw_meta, body = split_frontmatter(source_text)
+    raw_meta, body = split_frontmatter(source_text, lenient=lenient_frontmatter)
     # main()은 이미 setup 체인까지 해석한 meta를 넘겨준다(front matter를 두 번
     # 파싱하지 않기 위함). 다른 코드가 convert()를 직접 부르는 경우를 위해
     # 여기서도 해석할 수 있게 남겨둔다.
@@ -7974,7 +8020,8 @@ class SyncInfoUnavailable(Exception):
     pass
 
 
-def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_path=None):
+def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_path=None,
+                      lenient_frontmatter=False):
     """--syncinfo 전용: 최종 .tex 의 각 블록이 원본 .md 의 몇 번째 줄에서
     왔는지 나타내는 (src_파일, src_시작, src_끝, tex_시작, tex_끝) 목록을
     만든다(write_syncinfo_file() 이 기대하는 순서와 맞춰야 한다 — 한 번
@@ -8027,7 +8074,7 @@ def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_pat
     base_dir = (Path(include_base) if include_base is not None else Path(".")).resolve()
     top_path = Path(source_path).resolve() if source_path is not None else Path("<입력>")
 
-    raw_meta, body = split_frontmatter(source_text)
+    raw_meta, body = split_frontmatter(source_text, lenient=lenient_frontmatter)
     if meta is None:
         meta = resolve_setup(raw_meta, base_dir, None, 0)
 
@@ -8457,6 +8504,10 @@ def main():
                     help="입력 파일 인코딩을 지정한다 (기본값: UTF-8)")
     ap.add_argument("--setup", metavar="파일[,파일...]",
                     help="주어진 파일을 YAML frontmatter의 바탕으로 삼는다")
+    ap.add_argument("--inherit-meta", metavar="main.md",
+                    help="이 파일만 컴파일할 때 main 파일의 헤더를 그대로 쓴다(main 을 일반 변환할 때와 "
+                         "같게 해석). 이 파일 자신의 front matter 는 버리고, title/author/date/"
+                         "maketitle/tocloft 는 상속하지 않는다")
     ap.add_argument("--default", "-d", metavar="파일",
                     help=f"{DEFAULT_SETUP_NAME} 대신 기본 헤더로 쓸 파일. "
                          f"NONE이면 기본 헤더 없음")
@@ -8641,8 +8692,34 @@ def main():
 
     # front matter는 여기서 딱 한 번 해석한다(setup 체인 포함). 결과를
     # convert()에도 그대로 넘겨서 이중 파싱을 없앤다.
+    inherit_dir = None
+    if args.inherit_meta and (args.pandoc is not None or args.mmd is not None):
+        print("경고: --inherit-meta 는 --pandoc/--mmd 모드에서는 지원하지 않아 무시합니다.", file=sys.stderr)
+        args.inherit_meta = None
     try:
-        meta, _, setup_chain = resolve_meta(text, src_path, cli_setup=args.setup, cli_default=cli_default)
+        if args.inherit_meta:
+            main_p = Path(args.inherit_meta)
+            try:
+                same = main_p.resolve() == src_path.resolve()
+            except OSError:
+                same = False
+            if same:
+                print("알림: --inherit-meta 가 입력 파일 자신이라 무시합니다.", file=sys.stderr)
+                args.inherit_meta = None
+        if args.inherit_meta:
+            meta, setup_chain, ignored, inh_warns = resolve_inherited_meta(
+                main_p, text, src_path, cli_setup=args.setup, cli_default=cli_default)
+            inherit_dir = main_p.parent
+            if ignored:
+                print(f"알림: --inherit-meta: {src_path.name} 자신의 front matter 는 무시합니다 "
+                      f"({', '.join(ignored)}).", file=sys.stderr)
+            for w in inh_warns:
+                print(f"경고: {w}", file=sys.stderr)
+        else:
+            meta, _, setup_chain = resolve_meta(text, src_path, cli_setup=args.setup, cli_default=cli_default)
+    except SourceError as e:
+        print(f"오류: {e}", file=sys.stderr)
+        sys.exit(1)
     except SetupError as e:
         print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)
@@ -8699,7 +8776,7 @@ def main():
     for one_path in cfg_paths:
         # --config 는 작업 폴더 기준, front matter의 mapping: 은 입력 파일
         # 기준. 어느 쪽이든 못 찾으면 공유 리소스 폴더를 본다.
-        near = [Path.cwd()] if args.config else [src_path.parent]
+        near = [Path.cwd()] if args.config else [inherit_dir or src_path.parent]
         found, tried = resolve_resource(one_path, near=near)
         if found is None:
             trail = "\n".join(f"    {t}" for t in tried)
@@ -8820,14 +8897,16 @@ def main():
             try:
                 tex, sync_entries = generate_syncinfo(
                     text, cfg, include_base=src_path.parent, meta=meta,
-                    source_path=src_path)
+                    source_path=src_path, lenient_frontmatter=bool(inherit_dir))
             except SyncInfoUnavailable as e:
                 print(f"경고: {e} 변환은 계속하지만 .nmdsync 는 만들지 않습니다.",
                       file=sys.stderr)
-                tex = convert(text, cfg, include_base=src_path.parent, meta=meta, source_path=src_path)
+                tex = convert(text, cfg, include_base=src_path.parent, meta=meta, source_path=src_path,
+                              lenient_frontmatter=bool(inherit_dir))
                 sync_entries = None
         else:
-            tex = convert(text, cfg, include_base=src_path.parent, meta=meta, source_path=src_path)
+            tex = convert(text, cfg, include_base=src_path.parent, meta=meta, source_path=src_path,
+                          lenient_frontmatter=bool(inherit_dir))
     except (IncludeError, ExternalError) as e:
         print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)

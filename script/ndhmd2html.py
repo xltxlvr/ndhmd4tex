@@ -124,7 +124,7 @@ except ImportError as _e:      # pragma: no cover
           f"  ({_e})", file=sys.stderr)
     sys.exit(1)
 
-__version__ = "0.5.2"
+__version__ = "0.6.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -2335,13 +2335,13 @@ def build_document(body_html, ctx):
     return "\n".join(out) + "\n"
 
 
-def load_cfg(meta, src_path, cli_config):
+def load_cfg(meta, src_path, cli_config, map_base=None):
     """ndhmd4tex 와 같은 순서로 매핑을 읽는다(mapping: -> mappingrule: -> --config)."""
     cfg_path = cli_config or meta.get("mapping")
     paths = cfg_path if isinstance(cfg_path, list) else ([cfg_path] if cfg_path else [])
     resolved = []
     for one in paths:
-        near = [Path.cwd()] if cli_config else [src_path.parent]
+        near = [Path.cwd()] if cli_config else [map_base or src_path.parent]
         found, tried = nd.resolve_resource(one, near=near)
         if found is None:
             raise nd.ConfigError("매핑 파일을 찾을 수 없습니다: %s\n  찾아본 곳:\n%s"
@@ -2392,6 +2392,9 @@ def main(argv=None):
     ap.add_argument("--lang", help="문서 언어 (기본: front matter 의 lang, 없으면 ko)")
     ap.add_argument("--config", help="매핑 파일 (ndhmd4tex 의 --config 와 같다)")
     ap.add_argument("--setup", help="헤더 파일 (ndhmd4tex 의 --setup 과 같다)")
+    ap.add_argument("--inherit-meta", metavar="main.md",
+                    help="이 파일만 변환할 때 main 파일의 헤더를 쓴다(ndhmd4tex 의 --inherit-meta 와 같다). "
+                         "이 파일 자신의 front matter 는 버리고 title/author/date 등은 상속하지 않는다")
     ap.add_argument("--default", dest="default_setup", help="기본 헤더 파일. NONE 이면 쓰지 않는다")
     ap.add_argument("--version", action="version",
                     version="ndhmd2html %s (ndhmd4tex %s)" % (__version__, nd.__version__))
@@ -2409,8 +2412,20 @@ def main(argv=None):
         cli_default = opts.default_setup
         if cli_default and cli_default != "NONE" and not Path(cli_default).suffix:
             cli_default += ".nmd"
+        inherit_dir = None
         try:
-            meta, body_md, _chain = nd.resolve_meta(text, src, cli_setup=opts.setup, cli_default=cli_default)
+            if opts.inherit_meta and Path(opts.inherit_meta).resolve() != src.resolve():
+                meta, _chain, ignored, inh_warns = nd.resolve_inherited_meta(
+                    opts.inherit_meta, text, src, cli_setup=opts.setup, cli_default=cli_default)
+                body_md = nd.split_frontmatter(text, source=src, lenient=True)[1]
+                inherit_dir = Path(opts.inherit_meta).parent
+                if ignored:
+                    print("알림: --inherit-meta: %s 자신의 front matter 는 무시합니다 (%s)."
+                          % (src.name, ", ".join(ignored)), file=sys.stderr)
+                for w in inh_warns:
+                    print("경고: " + w, file=sys.stderr)
+            else:
+                meta, body_md, _chain = nd.resolve_meta(text, src, cli_setup=opts.setup, cli_default=cli_default)
         except nd.SetupError as e:
             # setup 파일은 대개 LaTeX 헤더(class, preamble)라 HTML 에는 없어도 된다.
             print("경고: setup 파일을 읽지 못해 문서 자신의 front matter 만 씁니다.\n  %s"
@@ -2418,7 +2433,7 @@ def main(argv=None):
             raw_meta, body_md = nd.split_frontmatter(text, source=src)
             meta = {k: v for k, v in (raw_meta or {}).items()
                     if k.rstrip("+") != nd.SETUP_KEY}
-        cfg = load_cfg(meta, src, opts.config)
+        cfg = load_cfg(meta, src, opts.config, inherit_dir)
         opts.fallback_title = src.stem
         opts.out_dir = out_path.parent
         body, ctx = convert(body_md, cfg, meta, src.parent, opts, source_path=src)
