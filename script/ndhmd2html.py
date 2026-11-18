@@ -3,7 +3,7 @@
 r"""ndhmd2html.py — ndhmd 방언 Markdown 을 HTML 로 바꾼다.
 
 ndhmd4tex.py 가 PDF(LaTeX) 출판용이라면 이 도구는 EPUB 으로 가는 길목인 HTML
-출력용이다. ndhmd4tex.py 와 같은 폴더에 두고 쓴다. 방언 해석(front matter,
+출력용이다. ndhmd4tex.py(없으면 확장자 없는 텍스트 스크립트 ndhmd4tex)와 같은 폴더에 두고 쓴다. 방언 해석(front matter,
 setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)은 ndhmd4tex 의
 함수를 그대로 불러 쓰므로 두 도구가 원고를 다르게 읽을 일이 없다. 새로 쓴 것은
 "무엇을 내보내는가" 뿐이다.
@@ -117,14 +117,68 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
+
+
+def _is_text_script(path):
+    """확장자 없는 ndhmd4tex 가 실행 파일(바이너리)이 아니라 텍스트 스크립트인지."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return False
+    if not head or b"\0" in head:
+        return False
+    if head[:2] == b"MZ" or head[:4] == b"\x7fELF" or head[:4] in (
+            b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf", b"\xce\xfa\xed\xfe",
+            b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe"):
+        return False
+    import codecs
+    try:
+        codecs.getincrementaldecoder("utf-8")().decode(head, final=False)
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def _load_extensionless(dirs):
+    """ndhmd4tex.py 가 없을 때, 옆의 확장자 없는 스크립트 `ndhmd4tex` 를 모듈로 읽는다.
+    바이너리(실행 파일)는 읽지 않는다. 성공하면 모듈, 아니면 None."""
+    import importlib.machinery
+    import importlib.util
+    for d in dirs:
+        cand = Path(d) / "ndhmd4tex"
+        if not (cand.is_file() and _is_text_script(cand)):
+            continue
+        loader = importlib.machinery.SourceFileLoader("ndhmd4tex", str(cand))
+        spec = importlib.util.spec_from_loader("ndhmd4tex", loader)
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules["ndhmd4tex"] = mod
+        try:
+            loader.exec_module(mod)
+        except Exception:
+            sys.modules.pop("ndhmd4tex", None)
+            continue
+        return mod
+    return None
+
+
 try:
     import ndhmd4tex as nd
 except ImportError as _e:      # pragma: no cover
-    print("오류: ndhmd4tex.py 를 찾을 수 없습니다. ndhmd2html.py 와 같은 폴더에 두십시오.\n"
-          f"  ({_e})", file=sys.stderr)
-    sys.exit(1)
+    nd = None
+    _dirs = [_HERE]
+    if getattr(sys, "frozen", False):
+        _dirs.append(Path(sys.executable).resolve().parent)
+    # ndhmd4tex.py 가 아예 없을 때만 확장자 없는 스크립트를 찾는다(있는데 가져오기가 실패한 것은 그 오류를 보인다)
+    if not any((Path(d) / "ndhmd4tex.py").exists() for d in _dirs):
+        nd = _load_extensionless(_dirs)
+    if nd is None:
+        print("오류: ndhmd4tex.py 를 찾을 수 없습니다. ndhmd2html.py 와 같은 폴더에 두십시오.\n"
+              "  (확장자 없는 스크립트 `ndhmd4tex` 도 텍스트 파일이면 쓸 수 있습니다. 바이너리는 쓸 수 없습니다.)\n"
+              f"  ({_e})", file=sys.stderr)
+        sys.exit(1)
 
-__version__ = "0.6.0"
+__version__ = "0.6.1"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")

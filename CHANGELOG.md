@@ -1,5 +1,9 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd2html 0.6.1
+
+- 옆에 `ndhmd4tex.py` 가 없고 확장자 없는 `ndhmd4tex` 만 있으면, 그것이 텍스트 스크립트일 때 불러 쓴다. 바이너리(ELF/PE/Mach-O 등, NUL 바이트, UTF-8 이 아닌 내용)는 쓰지 않고 오류를 낸다. `ndhmd4tex.py` 가 있으면 언제나 그쪽이 먼저이고, 있는데 가져오기가 실패한 경우에는 그 오류를 그대로 보인다. 실행 파일로 묶인 경우에는 실행 파일 옆 폴더도 찾는다.
+
 ## 치트시트 (ndhmd4tex 0.25.0 기준)
 
 - `ndhmd4tex_cheatsheet` 를 0.19.2 에서 0.25.0 으로 갱신했다. 앞면은 기존 내용에 `--mmd`, `--external`, `--inherit-meta` 와 front matter 키(`mmdoption`, `bibliography`, `RTLtypeset`)를 더했고, **뒷면(확장 기능)** 을 새로 만들었다: `bibliography:`(lang, print), 부분 컴파일·ndhmd2html, 각주 종류, `||`·grid 표, `external`·`showexam`, `RTLtypeset`, mapping 키(quotes, tilde, wavedash, notes …), 그리고 함정·막힐 때(앞면에서 옮김).
