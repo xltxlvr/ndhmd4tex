@@ -1,5 +1,9 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.25.1
+
+- `RTLtypeset`(polyglossia/babel)와 `bibliography:`(biblatex)를 함께 쓰면 `Package biblatex Error: 'polyglossia' loaded after biblatex` 가 나던 문제. 프리앰블에서 RTL 줄(polyglossia/babel)을 먼저, biblatex/kskoreanbib 와 `\addbibresource` 를 그 뒤에 놓는다. (사용자가 `preamble:` 에서 직접 biblatex 를 앞서 불렀다면 그 순서는 사용자 몫이다.)
+
 ## ndhmd2html 0.6.1
 
 - 옆에 `ndhmd4tex.py` 가 없고 확장자 없는 `ndhmd4tex` 만 있으면, 그것이 텍스트 스크립트일 때 불러 쓴다. 바이너리(ELF/PE/Mach-O 등, NUL 바이트, UTF-8 이 아닌 내용)는 쓰지 않고 오류를 낸다. `ndhmd4tex.py` 가 있으면 언제나 그쪽이 먼저이고, 있는데 가져오기가 실패한 경우에는 그 오류를 그대로 보인다. 실행 파일로 묶인 경우에는 실행 파일 옆 폴더도 찾는다.

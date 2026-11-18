@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.25.0"
+__version__ = "0.25.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -7472,10 +7472,11 @@ def _build_header_lines(meta, cfg=None, pandoc=False, mmd=False):
         # 별도 패키지가 필요 없다(실측으로 확인).
         header.append(r"\IfPackageLoadedTF{graphicx}{}{\usepackage{graphicx}}")
         header.append(rf"\graphicspath{{{braces}}}")
-    # 문헌 목록 선언(.bib). biblatex 는 babel/polyglossia 뒤에 와야 안전하다.
-    header.extend(bibliography_header_lines(meta, pandoc=pandoc, mmd=mmd))
-    # RTL 조판에 필요한 줄은 프리앰블 맨 끝에 둔다(bidi 는 늦게 불러야 한다).
+    # RTL 조판에 필요한 줄은 프리앰블 끝 쪽에 둔다(bidi 는 늦게 불러야 한다).
     header.extend(rtl_preamble_lines(cfg))
+    # 문헌 목록 선언(.bib). biblatex 는 babel/polyglossia 뒤에 와야 한다
+    # (앞에 오면 "'polyglossia' loaded after biblatex" 오류) — 그래서 RTL 줄 다음이다.
+    header.extend(bibliography_header_lines(meta, pandoc=pandoc, mmd=mmd))
     if title:
         header.append(rf"\title{{{title}}}")
     if author:
