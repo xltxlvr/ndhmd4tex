@@ -34,7 +34,7 @@ preamble+: |
 
 ## online image 
 
-![온라인 이미지](https://cdn.imweb.me/upload/S2024121748e4513968c4a/f982c89cf2b53.png){width=5cm,label="fig:online"}
+![온라인 이미지](https://ctan.org/assets/teaser/M/tex-2.png){width=6cm,label="fig:online"}
 
 - 최초 실행 시 `--fetch-images` 옵션을 한번 주어야 한다. 일단 다운로드에
 성공하면 그 후로는 fetch 옵션 없이 동작함.

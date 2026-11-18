@@ -8,11 +8,9 @@ preamble+: |
     % Language setting
     % Replace `english' with e.g. `spanish' to change the document language
     \usepackage[english]{babel}
-
     % Set page size and margins
     % Replace `letterpaper' with`a4paper' for UK/EU standard size
     \usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
-
     % Useful packages
     \usepackage{amsmath}
     \usepackage{graphicx}
@@ -24,10 +22,8 @@ bibliography:
   resource: sampleref.bib
 ---
 
-<!-- 출처: \url{https://www.overleaf.com/latex/templates/example-project/qzykddzqhkwk} -->
-
 :::{abstract}
-Your abstract.
+This document illustrates how to compose a document in the standard \LaTeX{} article class using ndhmd4tex. It is translated via ndhmd4tex from the original template available at \url{https://www.overleaf.com/latex/templates/example-project/qzykddzqhkwk}.
 :::
 
 # Introduction
@@ -112,7 +108,3 @@ If you have an [upgraded account](https://www.overleaf.com/user/subscription/pla
 
 We hope you find Overleaf useful, and do take a look at our [help library](https://www.overleaf.com/learn) for more tutorials and user guides! Please also let us know if you have any feedback using the Contact Us link at the bottom of the Overleaf menu --- or use the contact form at [](https://www.overleaf.com/contact).
 
-<!--
-\bibliographystyle{alpha}
-\bibliography{sampleref.bib}
--->
