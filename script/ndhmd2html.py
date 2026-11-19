@@ -178,9 +178,9 @@ except ImportError as _e:      # pragma: no cover
               f"  ({_e})", file=sys.stderr)
         sys.exit(1)
 
-__version__ = "0.6.1"
+__version__ = "0.6.2"
 
-_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes",
+_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
@@ -858,7 +858,10 @@ def _inline(text, ctx, local):
     text = re.sub(r"(?<!-)--(?!-)", lambda m: P("–"), text)
 
     text = nd.ESCAPED_QUOTE_RE.sub(lambda m: P(esc_attr(m.group(1)) if m.group(1) == '"' else "'"), text)
-    text = nd.convert_smart_quotes(text, _quotes(ctx), lambda s: P(esc(s)))
+    text = nd.convert_smart_quotes(
+        text, _quotes(ctx), lambda s: P(esc(s)),
+        cjk_only=nd.quotes_cjk_only(ctx.cfg),
+        fallback=("\u201c", "\u201d", "\u2018", "\u2019"))
 
     tmode = nd.resolve_tilde(cfg)
     wd = _wavedash(ctx)

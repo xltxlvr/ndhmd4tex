@@ -1,5 +1,9 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.26.0 / ndhmd2html 0.6.2
+
+- `quotes: mixed` 와 `quotes_scope: cjk` 추가. 여는 따옴표 다음 글자(`*` `~` 는 건너뜀)가 한글/한자일 때만 낫표 등 결과 문자로 바꾸고, 짝인 닫는 따옴표는 여는 쪽을 따른다. 영문 인용은 tex 따옴표(``..'')로 남는다. 이 모드에서 `'` 의 단어 안 아포스트로피는 닫는 따옴표로 보지 않는다. 판정 규칙은 `vpunct.py --contextual` 과 같다. `mixed` 는 `「」『』` 에 `cjk` 를 더한 줄임말. ndhmd2html 은 변환하지 않은 쪽을 `“ ”` `‘ ’` 로 낸다.
+
 ## ndhmd4tex 0.25.1
 
 - `RTLtypeset`(polyglossia/babel)와 `bibliography:`(biblatex)를 함께 쓰면 `Package biblatex Error: 'polyglossia' loaded after biblatex` 가 나던 문제. 프리앰블에서 RTL 줄(polyglossia/babel)을 먼저, biblatex/kskoreanbib 와 `\addbibresource` 를 그 뒤에 놓는다. (사용자가 `preamble:` 에서 직접 biblatex 를 앞서 불렀다면 그 순서는 사용자 몫이다.)

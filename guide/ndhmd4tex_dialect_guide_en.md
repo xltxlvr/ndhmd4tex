@@ -1626,6 +1626,7 @@ mapping (`mapping:`, `mappingrule:`, `--config`) changes it (0.20.4).
 | 4 characters `"「」『』"` | first two (open, close) | last two (open, close) |
 | 2 characters `"《》"` | those two | left as in `tex` |
 | list `["<<", ">>"]` | for multi-character marks, a list of the same length | (last two of 4 items) |
+| `mixed` | `「」` — Hangul/Hanja context only | `『』` — Hangul/Hanja context only |
 
 `unicode` is shorthand for the four characters `“”‘’`. The open/close decision,
 the escapes (`\"`, `\'`) and the handling of quotes in code and math are the
@@ -1634,6 +1635,16 @@ protected from later stages. An invalid value produces a warning and falls
 back to `tex`. It does not apply to `--pandoc` / `--mmd` (pandoc's smart
 extension and mmd's `--smart` handle that).
 
+- **Converting only in Hangul/Hanja context (0.26.0)**: use `quotes: mixed`,
+  or add `quotes_scope: cjk` (default `all`) to any value above. An opening
+  quote is converted only when the next character (skipping `*` and `~`) is
+  Hangul or Hanja; its closing quote follows the opener's decision. English
+  quotations (`"Hello"`) stay as the `tex` ``` ``Hello'' ``` and are typeset in
+  the ordinary font. A quote opened with Hangul stays `「」` even if English
+  appears inside. In this mode `'` inside a word (`don't`) is never taken as a
+  closing quote. Meant for horizontal+vertical manuscripts, matching the
+  decisions of `vpunct.py --contextual`. In ndhmd2html the unconverted ones
+  come out as `“ ”` `‘ ’`.
 - Unicode quotes appear when the font in use has the glyph, under
   xelatex/lualatex. pdflatex needs `inputenc`.
 - The closing single-quote character is also what an apostrophe becomes. With

@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.25.1"
+__version__ = "0.26.0"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3743,6 +3743,8 @@ def resolve_quotes(cfg):
             return None
         if name == "unicode":
             return ("\u201c", "\u201d", "\u2018", "\u2019")
+        if name == "mixed":
+            return ("\u300c", "\u300d", "\u300e", "\u300f")
         items = list(val)            # 문자열은 글자 하나씩
     elif isinstance(val, (list, tuple)):
         items = [str(x) for x in val]
@@ -3759,7 +3761,66 @@ def resolve_quotes(cfg):
     return tuple(items)
 
 
-def convert_smart_quotes(text: str, quotes=None, protect=None) -> str:
+def quotes_cjk_only(cfg) -> bool:
+    """한글/한자 맥락의 따옴표만 quotes 결과 문자로 바꾸는가(0.26.0).
+
+    `quotes: mixed` 이거나 `quotes_scope: cjk` 일 때 True. tex 모드이면 의미 없다."""
+    val = cfg.get("quotes", "tex")
+    if isinstance(val, str) and val.strip().lower() == "mixed":
+        return True
+    scope = str(cfg.get("quotes_scope", "all")).strip().lower()
+    if scope not in ("all", "cjk", ""):
+        if ("quotes_scope", scope) not in _quotes_warned:
+            _quotes_warned.add(("quotes_scope", scope))
+            print(f"경고: quotes_scope: {scope!r} 을(를) 알 수 없습니다. "
+                  f"all / cjk 여야 합니다. all 로 둡니다.", file=sys.stderr)
+    return scope == "cjk"
+
+
+# vpunct.py --contextual 과 같은 한글/한자 범위.
+_CJK_CHAR = re.compile(
+    "[\uac00-\ud7a3\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff"
+    "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0002fa1f]")
+
+
+def _contextual_quotes(text, ch, op, cl, fb_op, fb_cl, protect, open_ctx):
+    """ch(`"` 또는 `'`) 하나의 종류를 짝 단위로 판정해 치환한다.
+
+    여는 자리(문두·open_ctx 뒤)의 따옴표 바로 다음 글자(굵게/기울임 기호 `*` `~`
+    는 건너뛴다)가 한글/한자이면 op/cl 로, 아니면 fb_op/fb_cl 로 바꾼다. 닫는
+    따옴표는 짝인 여는 따옴표의 판정을 따른다(스택). 짝 없는 닫는 따옴표와, `'`
+    의 경우 단어 안 아포스트로피(don't)는 건드리지 않고 fb_cl 로 둔다."""
+    out = []
+    stack = []
+    i, n = 0, len(text)
+    ctx = re.compile(open_ctx)
+    for i, c in enumerate(text):
+        if c != ch:
+            out.append(c)
+            continue
+        prev = text[i - 1] if i else ""
+        if i == 0 or ctx.fullmatch(prev):
+            j = i + 1
+            while j < n and text[j] in "*~":
+                j += 1
+            ok = bool(j < n and _CJK_CHAR.match(text[j]))
+            stack.append(ok)
+            out.append(protect(op) if ok else fb_op)
+            continue
+        if ch == "'" and prev and prev not in " \t" and i + 1 < n \
+                and text[i + 1].isascii() and text[i + 1].isalnum() and not stack:
+            out.append(fb_cl)              # don't, rock'n'roll
+            continue
+        if stack:
+            ok = stack.pop()
+            out.append(protect(cl) if ok else fb_cl)
+        else:
+            out.append(fb_cl)
+    return "".join(out)
+
+
+def convert_smart_quotes(text: str, quotes=None, protect=None,
+                         cjk_only=False, fallback=None) -> str:
     r"""LaTeX은 여는/닫는 따옴표에 서로 다른 문자를 쓴다.
 
     - 큰따옴표: 여는 것은 ``(백틱 두 개), 닫는 것은 ''(아포스트로피 두 개).
@@ -3797,6 +3858,14 @@ def convert_smart_quotes(text: str, quotes=None, protect=None) -> str:
         # tex 가 아닌 모드. 결과 문자는 protect() 로 보호해서 뒤 단계(굵게·기울임
         # 규칙, 최종 escape_text)가 건드리지 못하게 한다. 여는/닫는 판정은 같다.
         dop, dcl, sop, scl = quotes
+        if cjk_only:
+            # 한글/한자 맥락만 변환. 나머지는 fallback(기본 tex 따옴표)로 둔다.
+            fdop, fdcl, fsop, fscl = fallback or ("``", "''", "`", "'")
+            text = _contextual_quotes(text, '"', dop, dcl, fdop, fdcl, protect, _OPEN_CTX)
+            text = _contextual_quotes(text, "'", sop or "`", scl or "'",
+                                      fsop, fscl, protect, _OPEN_CTX) \
+                if sop is not None else re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", "`", text)
+            return text
         text = re.sub(rf'(?:\A|(?<={_OPEN_CTX}))"', lambda m: protect(dop), text)
         text = text.replace('"', protect(dcl))
         if sop is None:
@@ -4544,7 +4613,8 @@ def process_inline(text, cfg, pr: Protector):
     # 먼저 실행해야 한다. 그 규칙들은 자신이 매치한 구간을 통째로 protect()
     # 해버리므로, 나중에 실행하면 예컨대 **"인용"** 안의 따옴표는 변환되지 않고
     # 그대로 남아버린다.
-    text = convert_smart_quotes(text, resolve_quotes(cfg), local.protect)
+    text = convert_smart_quotes(text, resolve_quotes(cfg), local.protect,
+                                cjk_only=quotes_cjk_only(cfg))
 
     # 틸드 정책: ~ 와 \~ 를 **둘 다 원문 그대로** LaTeX에 넘기고, 무엇을
     # 뜻하는지는 LaTeX이 정하게 둔다.
