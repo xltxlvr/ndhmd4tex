@@ -178,9 +178,9 @@ except ImportError as _e:      # pragma: no cover
               f"  ({_e})", file=sys.stderr)
         sys.exit(1)
 
-__version__ = "0.6.2"
+__version__ = "0.6.3"
 
-_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only",
+_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only", "_scope_replace", "apply_scope_markers", "_scope_is_marker",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
@@ -969,7 +969,7 @@ def extract_fences(text, ctx, pr):
 def protect_blocks(text, ctx, pr):
     cfg = ctx.cfg
     text = extract_fences(text, ctx, pr)
-    text = nd.COMMENT_RE.sub("", text)
+    text = nd.COMMENT_RE.sub(nd._scope_replace(text), text)
     if cfg.get("linecomment"):
         text = nd.LINECOMMENT_RE.sub("", text)
     text, _ = nd._protect_regex_outside_code(
@@ -1083,12 +1083,23 @@ def _math_only(b):
 
 
 def blocks(lines, ctx):
-    bl = nd.split_blocks(lines)
+    bl = []
+    lead = []           # 각 블록 앞의 <!--ndhmd ...--> 표지 줄(구간 지시)
+    for b, mark in nd.split_blocks(lines):
+        k = 0
+        while k < len(b) and nd._scope_is_marker(b[k]):
+            k += 1
+        if k < len(b):
+            lead.append(b[:k])
+            bl.append((b[k:], mark))
+        else:                                   # 끝에 남은 표지뿐인 블록
+            nd.apply_scope_markers(b, ctx.cfg)
     kinds = [_kind(b, ctx) for b, _ in bl]
     out = []
     i, n = 0, len(bl)
     while i < n:
         b, mark = bl[i]
+        nd.apply_scope_markers(lead[i], ctx.cfg)
         k = kinds[i]
         if k == "para":
             ptext = _para_text(b)
@@ -1108,6 +1119,7 @@ def blocks(lines, ctx):
             # 잇기 때문에, 두 출력이 같은 글이 되게 맞춘다.
             while mark in nd._JOINS and i + 1 < n and kinds[i + 1] == "para":
                 nxt = bl[i + 1][0]
+                nd.apply_scope_markers(lead[i + 1], ctx.cfg)
                 if _math_only(bl[i][0]) or _math_only(nxt):
                     glue = " "
                 else:

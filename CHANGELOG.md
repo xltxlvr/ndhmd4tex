@@ -1,5 +1,9 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.26.1 / ndhmd2html 0.6.3
+
+- 문서 일부에서만 mapping 값을 바꿨다가 되돌리는 구간 지시 추가: 한 줄짜리 `<!--ndhmd mappingrule` … `-->` 로 열고 `<!--ndhmd end-->` 로 닫는다. 안의 YAML 은 `mappingrule:` 과 같고, 닫으면 그 구간이 바꾼 키만 이전 값으로 돌아간다. 중첩·환경 안 사용 가능. 지시 줄은 블록만 끊고 문단은 나누지 않는다(ndhmd2html 은 `<p>` 가 나뉜다). 본문을 훑기 전에 처리되는 키(`linecomment`, `escape_chars`, `external`, `showexam` 등)는 구간에서 바꿀 수 없다. `{{포함}}` 파일 끝에서 자동으로 닫히지 않는다. 가이드 19.2 절.
+
 ## ndhmd4tex 0.26.0 / ndhmd2html 0.6.2
 
 - `quotes: mixed` 와 `quotes_scope: cjk` 추가. 여는 따옴표 다음 글자(`*` `~` 는 건너뜀)가 한글/한자일 때만 낫표 등 결과 문자로 바꾸고, 짝인 닫는 따옴표는 여는 쪽을 따른다. 영문 인용은 tex 따옴표(``..'')로 남는다. 이 모드에서 `'` 의 단어 안 아포스트로피는 닫는 따옴표로 보지 않는다. 판정 규칙은 `vpunct.py --contextual` 과 같다. `mixed` 는 `「」『』` 에 `cjk` 를 더한 줄임말. ndhmd2html 은 변환하지 않은 쪽을 `“ ”` `‘ ’` 로 낸다.

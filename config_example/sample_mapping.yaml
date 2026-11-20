@@ -387,6 +387,12 @@ quotes: tex
 # quotes_scope: cjk   위 모든 값에 적용: 여는 따옴표 다음 글자가 한글/한자일 때만 변환
 #                     (짝인 닫는 따옴표도 따라간다. vpunct.py --contextual 과 같은 규칙)
 # quotes_scope: all   (기본) 모든 따옴표를 변환
+#
+# 문서 일부에서만 값을 바꾸려면(예: 세로조판 구간) 원고 안에 한 줄 지시를 쓴다:
+#   <!--ndhmd mappingrule
+#   quotes: "「」『』"
+#   -->  … 본문 …  <!--ndhmd end-->
+# (안쪽 YAML 은 mappingrule: 과 같다. 가이드 19.2 절)
 
 
 # ── 5.4. 인라인 각주 허용 여부 ────────────────────────────────────

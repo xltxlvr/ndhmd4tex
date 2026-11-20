@@ -4026,6 +4026,55 @@ mappingrule: |
 The point is that copying an entire `mapping.yaml` over is unnecessary. Write
 only the entries that change; every other default stays as it was.
 
+### 19.2. For part of a document — `<!--ndhmd mappingrule-->` scopes (0.26.1)
+
+Use this to change values such as `quotes` for one stretch of the document
+(for example the part set in vertical writing) and then return to the
+original. It is opened by a comment-shaped directive that takes a whole line.
+
+```markdown
+Horizontal text. "한글" and "English" come out as tex quotes.
+
+<!--ndhmd mappingrule
+quotes: "「」『』"
+quotes_scope: cjk
+-->
+Vertical stretch. "한글 인용" becomes corner brackets; "English" is untouched.
+<!--ndhmd end-->
+
+Horizontal again. The values changed above are back to what they were.
+```
+
+- From the line after `<!--ndhmd mappingrule` up to `-->` is the same YAML
+  fragment as `mappingrule:` (`key: value`). The values are layered **on top
+  of** whatever `mapping:` / `mappingrule:` already set. Lists such as
+  `extra_inline` are replaced, not appended (as with `mappingrule:`).
+- `<!--ndhmd end-->` closes the innermost scope and restores only the keys
+  that scope changed to their values before the directive. Scopes nest.
+- A directive must occupy **a whole line** (a `mappingrule` directive may
+  span several lines). In the middle of a sentence it is ignored with a
+  warning. A plain Markdown viewer sees only a comment.
+- A directive line splits a block but **does not start a new paragraph**.
+  With no blank line between the lines before and after it, LaTeX continues
+  one paragraph (like the opening and closing lines of a `:::` environment).
+  ndhmd2html does start a new `<p>`.
+- You may open one inside an environment (`:::{name}`) or a quote, and a scope
+  opened outside applies inside. Without an `end` it stays open to the end of
+  the document, with a warning — it is **not** closed automatically at the end
+  of a `{{transcluded}}` file, so close it inside that file.
+- Keys that cannot be changed: those handled once before the body is
+  scanned, or that apply to the whole document — `linecomment`,
+  `escape_chars`, `external`, `showexam`, `animation_fps`,
+  `codeblock_template`, `literal_macros`, `extra_macros`, `verbatim_env`,
+  `metadata_macro_prefix`, `raw_inline_formats` — and keys starting with `_`.
+  A warning is printed and only that key is ignored. Broken YAML warns and the
+  whole directive is ignored.
+- The vertical-writing environment itself (`\begin{...}`) is not provided by
+  this directive. Wrap the stretch in a `:::{environment}` or a raw
+  environment and change the values inside it.
+- External post-processing such as `vpunct.py` knows nothing of the scope; it
+  runs over the whole `.tex`.
+
 ---
 
 ## 20. File inclusion (`{{filename}}`)

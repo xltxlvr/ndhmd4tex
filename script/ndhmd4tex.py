@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.0"
+__version__ = "0.26.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3032,6 +3032,111 @@ def _protect_regex_outside_code(text, pattern, protect_fn):
     return "".join(out), masked
 
 
+# --------------------------------------------------------------------------
+# 구간 지시 `<!--ndhmd mappingrule ... -->` / `<!--ndhmd end-->` (0.26.1)
+# --------------------------------------------------------------------------
+# 문서 일부에서만 mapping 값을 바꿨다가 되돌리는 장치. 지시는 한 줄을 통째로
+# 차지해야 하고, 주석 제거 단계에서 한 줄짜리 표지(_SCOPE_OPEN..._SCOPE_CLOSE)
+# 로 바뀐다. split_blocks()는 이 표지에서 블록을 끊고(문단 구분은 아님) 표지를
+# 다음 블록 맨 앞에 붙여 두며, render_blocks()가 그것을 읽어 cfg 를 제자리에서
+# 바꾼다. cfg 는 한 번의 변환 동안 하나라서 환경·인용 안쪽 호출에도 그대로
+# 이어지고, --syncinfo 경로(블록마다 render_blocks 호출)에서도 상태가 유지된다.
+_SCOPE_OPEN = "\uE004"
+_SCOPE_CLOSE = "\uE005"
+_SCOPE_RE = re.compile(_SCOPE_OPEN + r"(\d+)" + _SCOPE_CLOSE)
+_SCOPE_STORE = []
+_SCOPE_DIRECTIVE_RE = re.compile(r"<!--ndhmd(?:\s+(\w+))?(.*?)-->", re.DOTALL)
+# 본문을 훑는 단계보다 앞서 한 번에 처리되거나 문서 전체에 걸리는 키는 구간으로
+# 바꿀 수 없다.
+_SCOPE_FORBIDDEN_KEYS = {
+    "linecomment", "escape_chars", "external", "showexam", "animation_fps",
+    "codeblock_template", "literal_macros", "extra_macros", "verbatim_env",
+    "metadata_macro_prefix", "raw_inline_formats",
+}
+
+
+def _scope_is_marker(line):
+    return bool(_SCOPE_RE.fullmatch(line.strip()))
+
+
+def _scope_replace(text):
+    """COMMENT_RE.sub 에 넘기는 치환 함수를 돌려준다: `<!--ndhmd ...-->` 만
+    한 줄짜리 표지로 바꾸고 나머지 주석은 지운다."""
+    def _sub(m):
+        raw = m.group(0)
+        if not raw.startswith("<!--ndhmd") or not re.match(r"<!--ndhmd(\s|-->)", raw):
+            return ""
+        start, end = m.start(), m.end()
+        full_line = (start == 0 or text[start - 1] == "\n") and \
+                    (end == len(text) or text[end] == "\n")
+        d = _SCOPE_DIRECTIVE_RE.fullmatch(raw)
+        word = (d.group(1) or "") if d else ""
+        body = (d.group(2) or "") if d else ""
+        if not full_line:
+            print("경고: <!--ndhmd ...--> 지시는 한 줄을 통째로 차지해야 합니다. "
+                  "이 지시는 무시합니다.", file=sys.stderr)
+            return ""
+        if word == "end":
+            item = ("end", None)
+        elif word == "mappingrule":
+            try:
+                extra = yaml.safe_load(body) if body.strip() else {}
+            except yaml.YAMLError as e:
+                print(f"경고: <!--ndhmd mappingrule--> 의 YAML 을 읽지 못해 무시합니다.\n  {e}",
+                      file=sys.stderr)
+                return ""
+            if not isinstance(extra, dict):
+                print("경고: <!--ndhmd mappingrule--> 은 key: value 형태여야 합니다. "
+                      "무시합니다.", file=sys.stderr)
+                return ""
+            item = ("push", extra)
+        else:
+            print(f"경고: 알 수 없는 <!--ndhmd {word}--> 지시를 무시합니다. "
+                  f"mappingrule / end 만 있습니다.", file=sys.stderr)
+            return ""
+        _SCOPE_STORE.append(item)
+        return f"{_SCOPE_OPEN}{len(_SCOPE_STORE) - 1}{_SCOPE_CLOSE}"
+    return _sub
+
+
+def warn_open_scopes(cfg):
+    n = len(cfg.get("_scope_stack") or [])
+    if n:
+        print(f"경고: <!--ndhmd mappingrule--> 구간 {n}개가 <!--ndhmd end--> 없이 "
+              f"문서 끝까지 열려 있습니다.", file=sys.stderr)
+
+
+def apply_scope_markers(lines, cfg):
+    """블록 맨 앞에 붙은 표지 줄들을 읽어 cfg 에 반영하고 나머지 줄을 돌려준다."""
+    k = 0
+    while k < len(lines) and _scope_is_marker(lines[k]):
+        idx = int(_SCOPE_RE.fullmatch(lines[k].strip()).group(1))
+        kind, extra = _SCOPE_STORE[idx]
+        stack = cfg.setdefault("_scope_stack", [])
+        if kind == "push":
+            saved = {}
+            for key, val in extra.items():
+                if str(key).startswith("_") or key in _SCOPE_FORBIDDEN_KEYS:
+                    print(f"경고: 구간 안에서는 {key!r} 키를 바꿀 수 없습니다. 무시합니다.",
+                          file=sys.stderr)
+                    continue
+                saved[key] = (key in cfg, copy.deepcopy(cfg.get(key)))
+                cfg[key] = deep_merge({key: cfg.get(key)}, {key: val})[key]
+            stack.append(saved)
+        else:
+            if not stack:
+                print("경고: <!--ndhmd end--> 에 짝이 되는 mappingrule 구간이 없습니다.",
+                      file=sys.stderr)
+            else:
+                for key, (had, val) in stack.pop().items():
+                    if had:
+                        cfg[key] = val
+                    else:
+                        cfg.pop(key, None)
+        k += 1
+    return lines[k:]
+
+
 def protect_block_level(text, cfg, pr: Protector, sync_events=None):
     """블록 레벨 보호(코드펜스/주석/수식·표 환경)를 순서대로 적용한다.
 
@@ -3059,7 +3164,7 @@ def protect_block_level(text, cfg, pr: Protector, sync_events=None):
         # 자체에 \n? 이 있어 진짜로 줄이 사라지므로 0이 맞다 — 아래 참고).
         sync_events.setdefault("comment", []).extend(
             _line_events_for_full_line_matches(text, COMMENT_RE, 1))
-    text = COMMENT_RE.sub("", text)
+    text = COMMENT_RE.sub(_scope_replace(text), text)
     if cfg.get("linecomment"):
         if sync_events is not None:
             sync_events.setdefault("linecomment", []).extend(
@@ -5036,14 +5141,23 @@ def split_blocks_indexed(lines):
     env_depth = 0
     frame_depth = 0
 
-    def flush(end_idx):
+    def flush(end_idx, final=False):
         nonlocal buf_start
-        if buf:
+        if buf and (final or not all(_scope_is_marker(x) for x in buf)):
             blocks.append([buf[:], buf_start, end_idx, False])
             buf.clear()
-        buf_start = None
+            buf_start = None
+        elif not buf:
+            buf_start = None
 
     for idx, line in enumerate(lines):
+        if _scope_is_marker(line) and env_depth == 0 and frame_depth == 0:
+            if buf and not all(_scope_is_marker(x) for x in buf):
+                flush(idx)
+            if not buf:
+                buf_start = idx
+            buf.append(line)
+            continue
         if ENV_OPEN_RE.match(line):
             if env_depth == 0 and frame_depth == 0:
                 flush(idx)
@@ -5085,7 +5199,7 @@ def split_blocks_indexed(lines):
             if not buf:
                 buf_start = idx
             buf.append(line)
-    flush(len(lines))
+    flush(len(lines), final=True)
     return blocks
 
 
@@ -5114,11 +5228,17 @@ def split_blocks(lines):
     frame_depth = 0
 
     def flush():
-        if buf:
+        # 표지 줄만 쌓여 있으면 내보내지 않고 다음 블록 앞에 붙여 둔다.
+        if buf and not all(_scope_is_marker(x) for x in buf):
             blocks.append([buf[:], False])
             buf.clear()
 
     for line in lines:
+        if _scope_is_marker(line) and env_depth == 0 and frame_depth == 0:
+            if buf and not all(_scope_is_marker(x) for x in buf):
+                flush()
+            buf.append(line)
+            continue
         if ENV_OPEN_RE.match(line):
             if env_depth == 0 and frame_depth == 0:
                 flush()
@@ -5167,6 +5287,8 @@ def split_blocks(lines):
         else:
             buf.append(line)
     flush()
+    if buf:                                  # 끝에 남은 표지: 자기 블록으로
+        blocks.append([buf[:], False])
     return blocks
 
 
@@ -6167,7 +6289,12 @@ def render_paragraph(lines, cfg, pr):
 def render_blocks(lines, cfg, pr):
     blocks = split_blocks(lines)
     out = []
+    kept = []
     for blk, _had_blank_after in blocks:
+        blk = apply_scope_markers(blk, cfg)
+        if not blk:                       # 끝에 남은 표지뿐인 블록
+            continue
+        kept.append([blk, _had_blank_after])
         first = blk[0]
 
         if ENV_OPEN_RE.match(first):
@@ -6266,6 +6393,7 @@ def render_blocks(lines, cfg, pr):
     # 않는다). 한국어 조판에서는 후자를 새 문단(들여쓰기)으로 잘못
     # 찍으면 안 되기 때문이다 — "::: 뒤에 빈 줄이 없다"는 원고
     # 작성자의 선택 자체가 "이건 새 문단이 아니다"라는 뜻이다.
+    blocks = kept
     pieces = []
     for i, piece in enumerate(out):
         if i < len(out) - 1 and blocks[i][1] in _JOINS:
@@ -8074,6 +8202,7 @@ def convert(source_text, cfg, include_base=None, meta=None, body_only=False, sou
 
     lines = body.split("\n")
     body_tex = render_blocks(lines, cfg, pr)
+    warn_open_scopes(cfg)
     body_tex = pr.restore(body_tex)
     # 이제 각주까지 준비됐으니 showexam의 오른쪽 상자를 채운다.
     body_tex = expand_showexam(body_tex, showexam_store, cfg)
@@ -8271,6 +8400,7 @@ def generate_syncinfo(source_text, cfg, include_base=None, meta=None, source_pat
             # "\n"(추가로 차지하는 줄 없음).
             out_line += 1 if had_blank_after is True else 0
 
+    warn_open_scopes(cfg)
     separators = ["\n\n" if blocks[i][3] is True else "\n" for i in range(len(rendered_pieces) - 1)]
     body_tex = "".join(
         piece + (separators[i] if i < len(separators) else "")
