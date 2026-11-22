@@ -1,5 +1,21 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.26.5
+
+- `--preview-at`: `\newhangulfontfamily`·`\newhanjafontfamily`(및 `…fontface`)도 글꼴 정의 명령으로 취급해 `\def\이름{}` 로 대신한다.
+
+## ndhmd4tex 0.26.4
+
+- `--preview-at`: `\newfontfamily\이름{…}`·`\newfontface`·`\newCJKfontfamily`·`\newCJKfontface` 를 지울 때 그 명령이 정의하던 `\이름` 을 `\def\이름{}` 로 남겨, 본문에서 `{\이름 …}` 을 써도 오류가 나지 않게 했다(`\newfontfamily{\이름}` 꼴도 처리).
+
+## ndhmd4tex 0.26.3
+
+- `--preview-at`: 글꼴 지정을 지울 때 명령 한 줄이 아니라 뒤따르는 `(...)` `[...]` `{...}` 인자 전체를 여러 줄에 걸쳐 지운다. ndhmdWriter 의 font.py 가 만드는 `\setmainfont{…}[` + 여러 줄 옵션 + `]` 꼴이 옵션 줄만 남아 오류가 나던 것을 고쳤다. `\setko…font`(oblivoir)·`\setmonohangulfont`·`\newfontfamily\이름` 등도 같은 방식으로 처리한다.
+
+## ndhmd4tex 0.26.2
+
+- `--preview-at [파일:]줄` 과 `--context N`(기본 1) 추가: 원고의 한 줄이 속한 블록과 앞뒤 N개 블록만 담은 약식 미리보기 `.tex` 를 만든다. 헤더는 전체 변환의 것을 쓰되 글꼴 지정(`\setkomainfont` 등)은 지워 kotex 기본(UnBatang)·lmodern 에 맡기고, 앞선 제목 수로 카운터를 맞춘다. 쪽 나눔·상호참조는 부정확. 가이드 1.5.1 절.
+
 ## ndhmd4tex 0.26.1 / ndhmd2html 0.6.3
 
 - 문서 일부에서만 mapping 값을 바꿨다가 되돌리는 구간 지시 추가: 한 줄짜리 `<!--ndhmd mappingrule` … `-->` 로 열고 `<!--ndhmd end-->` 로 닫는다. 안의 YAML 은 `mappingrule:` 과 같고, 닫으면 그 구간이 바꾼 키만 이전 값으로 돌아간다. 중첩·환경 안 사용 가능. 지시 줄은 블록만 끊고 문단은 나누지 않는다(ndhmd2html 은 `<p>` 가 나뉜다). 본문을 훑기 전에 처리되는 키(`linecomment`, `escape_chars`, `external`, `showexam` 등)는 구간에서 바꿀 수 없다. `{{포함}}` 파일 끝에서 자동으로 닫히지 않는다. 가이드 19.2 절.

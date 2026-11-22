@@ -840,6 +840,34 @@ No matter which working directory `ndhmdsync.py` is run from (inside
 path is resolved against where `ch1.md` itself actually sits, so it always
 finds `main.md` (and the `main.nmdsync` next to it) correctly.
 
+### 1.5.1. `--preview-at` — a rough typeset of just the spot you edited (0.26.2)
+
+For when you edit a few paragraphs of a long text and want to see "roughly what
+it looks like" without compiling everything. Give one source line and it
+writes a standalone `.tex` holding the block that line belongs to plus the
+neighbouring blocks.
+
+```
+ndhmd4tex main.md --preview-at main.md:123 -o prev.tex --pdflua
+ndhmd4tex main.md --preview-at 123 --context 2      # no file = the top-level manuscript
+```
+
+- The header is the full conversion's own, so `mapping`, `mappingrule` and
+  scope directives (section 19.2) come out the same. A blank line picks the
+  nearest block.
+- `--context N` is how many blocks to include on each side (default 1).
+- **Font settings are dropped**: `\setkomainfont`, `\setmainfont` and the like
+  are removed together with their `[...]` options, even across lines (the `\name` that `\newfontfamily`, `\newhangulfontfamily` or `\newhanjafontfamily` defined is kept as `\def\name{}`), leaving kotex's default Hangul font (UnBatang) and the default
+  Latin font (lmodern). This is to keep the preview light when loading a large
+  Hangul font accounts for most of the compile time. Line breaks may differ
+  from the real fonts.
+- Headings before the spot are counted to set `chapter`, `section` etc.
+  Cross-references, index, bibliography and page breaks are not accurate. The
+  exact result always comes from a full compile.
+- Without `-o` it writes `<manuscript>.preview.tex` and no `.nmdsync`. With a
+  compile option such as `--pdflua` it compiles that preview file.
+- Not available with `--pandoc`, `--mmd` or `--default NONE`.
+
 ### 1.6. `--latexmk` — compile with a standard tool instead of ksruncltex
 
 `--pdf`/`--pdfxe`/`--pdflua` compile through `ksruncltex`, a tool this

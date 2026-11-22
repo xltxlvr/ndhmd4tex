@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.1"
+__version__ = "0.26.5"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -8464,6 +8464,143 @@ def write_syncinfo_file(path, entries):
 
 
 # --------------------------------------------------------------------------
+# 6.5. --preview-at: 지금 고친 자리만 "대략 이런 모양"으로 조판하는 미리보기
+# --------------------------------------------------------------------------
+# 전체를 컴파일하지 않고, 원고의 한 줄이 속한 블록과 앞뒤 N개 블록만 같은 헤더로
+# 담은 독립 .tex 를 만든다. 쪽 나눔·상호참조·색인·서지는 정확하지 않다(약식).
+# 정확한 결과는 늘 전체 컴파일이 만든다. 큰 한글 글꼴 로딩이 컴파일 시간의
+# 대부분인 경우를 고려해, 글꼴 지정은 지우고 kotex 의 기본(UnBatang)과 lmodern
+# 에 맡긴다.
+
+_PREVIEW_FONT_CMD_RE = re.compile(
+    r"^[ \t]*\\(?:set(?:ko|main|sans|mono|math|CJK|hangul|hanja)\w*font\w*"
+    r"|new(?:CJK|hangul|hanja)?font(?:family|face)|setCJK\w+)(?![A-Za-z@])", re.M)
+_PREVIEW_CLOSER = {"(": ")", "[": "]", "{": "}"}
+
+
+def _strip_preview_fonts(header_text):
+    """글꼴 지정 명령을 뒤에 이어지는 `(...)` `[...]` `{...}` 인자째로(여러 줄에
+    걸쳐 있어도) 지운다. 한 줄만 지우면 `\\setmainfont{X}[` 뒤의 옵션 줄이
+    남아 오류가 난다(ndhmdWriter 의 font.py 가 만드는 꼴)."""
+    out, pos = [], 0
+    for m in _PREVIEW_FONT_CMD_RE.finditer(header_text):
+        if m.start() < pos:
+            continue
+        i = m.end()
+        n = len(header_text)
+        defined = ""
+        if m.group(0).lstrip().startswith("\\new"):
+            # \newfontfamily\cjk{…} 은 \cjk 를 정의한다. 지우면 뒤에서 \cjk 를 쓸 때
+            # 오류가 나므로 아무것도 하지 않는 \def 로 대신한다.
+            mm = re.compile(r"\s*(?:\{\s*(\\[A-Za-z@]+)\s*\}|(\\[A-Za-z@]+))").match(header_text, i)
+            if mm:
+                defined = "\\def" + (mm.group(1) or mm.group(2)) + "{}"
+                i = mm.end()
+        else:
+            mm = re.compile(r"[ \t]*\\[A-Za-z@]+").match(header_text, i)
+            if mm:
+                i = mm.end()
+        while True:
+            j = i
+            while j < n and header_text[j] in " \t\r\n":
+                j += 1
+            if j >= n or header_text[j] not in _PREVIEW_CLOSER:
+                break
+            opener, closer, depth, k = header_text[j], _PREVIEW_CLOSER[header_text[j]], 0, j
+            while k < n:
+                c = header_text[k]
+                if c == "\\":
+                    k += 2
+                    continue
+                if c == opener:
+                    depth += 1
+                elif c == closer:
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            if depth != 0:
+                break                     # 닫히지 않음: 거기까지만 지운다
+            i = k + 1
+        out.append(header_text[pos:m.start()])
+        out.append(defined)
+        pos = i
+    out.append(header_text[pos:])
+    return "".join(out)
+
+
+_PREVIEW_HEADING_RE = re.compile(r"^\s*\\(part|chapter|section|subsection|subsubsection)(?!\*)\s*[\[{]")
+_PREVIEW_LEVELS = ["part", "chapter", "section", "subsection", "subsubsection"]
+
+
+def parse_preview_spec(spec, main_path):
+    """`파일:줄` 또는 `줄` → (절대경로, 줄번호)."""
+    spec = str(spec).strip()
+    m = re.fullmatch(r"(?:(.+):)?(\d+)", spec)
+    if not m:
+        raise ValueError(f"--preview-at 은 '파일:줄' 또는 '줄' 이어야 합니다: {spec!r}")
+    f, line = m.group(1), int(m.group(2))
+    return (Path(f).resolve() if f else Path(main_path).resolve()), line
+
+
+def build_preview_tex(tex, entries, spec, context=1, main_path=None):
+    """전체 변환 결과 tex 와 sync 항목에서 미리보기용 tex 를 만든다.
+
+    entries: (src_file, src_start, src_end, tex_start, tex_end) 목록.
+    돌려주는 값: (preview_tex, 설명 문자열)."""
+    target, line = parse_preview_spec(spec, main_path)
+    items = sorted(entries, key=lambda e: e[3])
+    if not items:
+        raise ValueError("대응 정보가 없어 미리보기를 만들 수 없습니다.")
+
+    def same(f):
+        try:
+            return Path(f).resolve() == target
+        except OSError:
+            return str(f) == str(target)
+
+    best, bestd = None, None
+    for k, (f, a, b, _ts, _te) in enumerate(items):
+        if not same(f):
+            continue
+        d = 0 if a <= line <= b else min(abs(line - a), abs(line - b))
+        if bestd is None or d < bestd:
+            best, bestd = k, d
+    if best is None:
+        raise ValueError(f"{target} 에서 온 블록이 없습니다. (포함 파일 경로와 줄 번호를 확인하십시오.)")
+
+    lo, hi = max(0, best - context), min(len(items) - 1, best + context)
+    tex_s, tex_e = items[lo][3], items[hi][4]
+    lines = tex.split("\n")
+    try:
+        begin = next(i for i, l in enumerate(lines) if l.strip() == r"\begin{document}")
+    except StopIteration:
+        raise ValueError("\\begin{document} 가 없는 출력(본문 전용)에는 미리보기를 만들 수 없습니다.")
+    header = _strip_preview_fonts("\n".join(lines[:begin])).split("\n")
+
+    # 선택 구간 앞의 번호 있는 제목 개수 → 카운터 초기값
+    cnt = {k: 0 for k in _PREVIEW_LEVELS}
+    for l in lines[begin + 1: tex_s - 1]:
+        m = _PREVIEW_HEADING_RE.match(l)
+        if m:
+            lev = m.group(1)
+            cnt[lev] += 1
+            for lower in _PREVIEW_LEVELS[_PREVIEW_LEVELS.index(lev) + 1:]:
+                cnt[lower] = 0
+    sets = [f"\\@ifundefined{{c@{k}}}{{}}{{\\setcounter{{{k}}}{{{v}}}}}"
+            for k, v in cnt.items() if v]
+    body = lines[tex_s - 1: tex_e]
+    out = header + ["\\begin{document}"]
+    if sets:
+        out += ["\\makeatletter"] + sets + ["\\makeatother"]
+    out += ["% --- ndhmd4tex --preview-at: 약식 미리보기 (쪽 나눔·상호참조는 정확하지 않음) ---"]
+    out += body + ["", "\\end{document}", ""]
+    note = (f"미리보기: 블록 {lo + 1}~{hi + 1}/{len(items)} (tex {tex_s}~{tex_e}줄, "
+            f"원고 기준 줄 {line}, 앞뒤 {context}개 블록)")
+    return "\n".join(out), note
+
+
+# --------------------------------------------------------------------------
 # 7. CLI 및 컴파일/실행
 # --------------------------------------------------------------------------
 
@@ -8729,6 +8866,12 @@ def main():
                          "(mapping 의 external: 에 등록한 도구만)")
     ap.add_argument("--syncinfo", action="store_true",
                     help="PDF와의 상호 탐색을 위한 .nmdsync 파일 쓰기")
+    ap.add_argument("--preview-at", metavar="[파일:]줄", default=None,
+                    help="그 원고 줄이 속한 블록과 앞뒤 블록만 담은 약식 미리보기 .tex 를 "
+                         "만든다(글꼴 지정은 빼고 kotex 기본을 쓴다). -o 가 없으면 "
+                         "<원고>.preview.tex. 컴파일 옵션과 함께 쓰면 그것을 컴파일한다")
+    ap.add_argument("--context", type=int, default=1, metavar="N",
+                    help="--preview-at 에서 앞뒤로 함께 담을 블록 수 (기본 1)")
     ap.add_argument("--dump-meta", action="store_true",
                     help="현재 문서의 최종 front matter를 출력")
     ap.add_argument("--dump-mapping", action="store_true",
@@ -9089,7 +9232,7 @@ def main():
                       "(본문 변환을 pandoc 서브프로세스에 통째로 맡기므로, 몇 줄이 "
                       "몇 줄이 됐는지 이 스크립트가 알 방법이 없습니다). "
                       ".nmdsync 파일은 생성되지 않았습니다.", file=sys.stderr)
-        elif args.syncinfo:
+        elif args.syncinfo or args.preview_at:
             # SyncInfoUnavailable 은 지금은 generate_syncinfo() 가 던질 일이
             # 없다({{포함}}도 resolve_includes_tracked() 로 지원되므로) —
             # 그래도 앞으로 또 다른 제약이 발견될 경우를 대비한 안전망으로
@@ -9115,7 +9258,21 @@ def main():
         print(f"오류: {e}", file=sys.stderr)
         sys.exit(1)
 
-    out_path = Path(args.output) if args.output else src_path.with_suffix(".tex")
+    if args.preview_at:
+        if sync_entries is None:
+            print("오류: 이 모드에서는 --preview-at 을 쓸 수 없습니다 "
+                  "(원고와 tex 의 대응 정보를 만들 수 없음).", file=sys.stderr)
+            sys.exit(1)
+        try:
+            tex, _pv_note = build_preview_tex(tex, sync_entries, args.preview_at,
+                                               max(0, args.context), main_path=src_path)
+        except ValueError as e:
+            print(f"오류: {e}", file=sys.stderr)
+            sys.exit(1)
+        print(_pv_note)
+        args.syncinfo = False          # 미리보기 tex 에는 .nmdsync 를 쓰지 않는다
+    out_path = Path(args.output) if args.output else (
+        src_path.with_suffix(".preview.tex") if args.preview_at else src_path.with_suffix(".tex"))
     try:
         out_path.write_text(tex, encoding="utf-8")
     except FileNotFoundError:

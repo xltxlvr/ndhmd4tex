@@ -785,6 +785,31 @@ ndhmain: ../main.md
 있는 위치를 기준으로 풀려서 언제나 정확히 `main.md`(그리고 그 옆의
 `main.nmdsync`)를 찾아간다.
 
+### 1.5.1. `--preview-at` — 고친 자리만 약식으로 조판하기 (0.26.2)
+
+긴 글에서 몇 문단을 고칠 때마다 전체를 컴파일하지 않고, "대략 이런 모양"만
+빨리 보고 싶을 때 쓴다. 원고의 한 줄을 지정하면 그 줄이 속한 블록과 앞뒤
+블록만 담은 독립 `.tex`를 만든다.
+
+```
+ndhmd4tex main.md --preview-at main.md:123 -o prev.tex --pdflua
+ndhmd4tex main.md --preview-at 123 --context 2      # 파일 생략 = 최상위 원고
+```
+
+- 헤더는 전체 변환의 것을 그대로 쓰므로 `mapping`·`mappingrule`·구간 지시
+  (19.2절)의 결과가 같다. 지정한 줄이 빈 줄이면 가장 가까운 블록을 고른다.
+- `--context N`은 앞뒤로 함께 담을 블록 수다(기본 1).
+- **글꼴 지정은 지운다**: `\setkomainfont`·`\setmainfont` 등을 여러 줄에 걸친 `[...]` 옵션까지 통째로 빼서(`\newfontfamily`·`\newhangulfontfamily`·`\newhanjafontfamily\이름` 이 정의하던 `\이름`은 `\def\이름{}`로 남긴다) kotex의
+  기본 한글 글꼴(UnBatang)과 영문 기본(lmodern)에 맡긴다. 큰 한글 글꼴 로딩이
+  컴파일 시간의 대부분일 때 미리보기를 가볍게 하려는 것이다. 줄바꿈은 실제
+  글꼴과 달라질 수 있다.
+- 앞선 제목 개수를 세어 `chapter`·`section` 등의 카운터를 맞춘다.
+  상호참조·색인·서지·쪽 나눔은 정확하지 않다. 정확한 결과는 늘 전체 컴파일이
+  만든다.
+- `-o`가 없으면 `<원고>.preview.tex`로 쓰고 `.nmdsync`는 만들지 않는다.
+  `--pdflua` 등 컴파일 옵션을 함께 주면 그 미리보기 파일을 컴파일한다.
+- `--pandoc`·`--mmd`·`--default NONE`에서는 쓸 수 없다.
+
 ### 1.6. `--latexmk` — ksruncltex 대신 표준 도구로 컴파일하기
 
 `--pdf`/`--pdfxe`/`--pdflua`는 이 스크립트 저자가 만든 `ksruncltex`를
