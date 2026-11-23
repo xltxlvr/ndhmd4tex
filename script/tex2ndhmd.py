@@ -21,6 +21,10 @@ pandoc이 모르는 매크로/환경은 raw_tex 리더 확장 덕분에 사라�
 
 필요한 것: pandoc (PATH에 있어야 한다). 그 외 외부 의존성 없음.
 
+Pandoc이 소스에서 선언된 사용자 정의 환경을 파싱하다 실패하면, 해당
+환경의 사용 구간을 원문 LaTeX로 보존한 채 한 번 더 변환한다. 결과에는
+원본 documentclass, 클래스 옵션, document 환경 앞의 프리앰블도 반영한다.
+
 Copyright (c) 2026 Nova de Hi
 Licensed under the MIT License. See LICENSE for details.
 """
@@ -31,7 +35,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"
+
+
+class ConversionError(Exception):
+    """A recoverable input or Pandoc conversion error."""
 
 
 # --------------------------------------------------------------------------
@@ -79,11 +87,75 @@ def extract_math_envs(tex_source):
 
 
 def restore_math_envs(markdown_text, store):
-    def _sub(m):
-        idx = int(m.group(1))
-        return store.get(idx, m.group(0))
+    # A preserved custom environment may itself contain a placeholder (for
+    # example, an equation inside a user-defined example environment). Resolve
+    # repeatedly so nested protected blocks are restored as well.
+    for _ in range(len(store) + 1):
+        updated = _PLACEHOLDER_RE.sub(
+            lambda m: store.get(int(m.group(1)), m.group(0)), markdown_text
+        )
+        if updated == markdown_text:
+            break
+        markdown_text = updated
+    return markdown_text
 
-    return _PLACEHOLDER_RE.sub(_sub, markdown_text)
+
+# Pandoc sometimes expands a custom environment declared in the preamble and
+# then loses track of a package environment nested inside it. On parse failure
+# we protect invocations of environments declared in the source and let ndhmd
+# pass those blocks through as raw LaTeX.
+_CUSTOM_ENV_DEF_RE = re.compile(
+    r"\\(?:newenvironment|renewenvironment)\*?\s*\{([A-Za-z@]+\*?)\}"
+    r"|\\(?:NewDocumentEnvironment|RenewDocumentEnvironment|"
+    r"ProvideDocumentEnvironment|DeclareDocumentEnvironment)\s*"
+    r"\{([A-Za-z@]+\*?)\}"
+)
+
+
+def declared_environment_names(tex_source):
+    names = set()
+    for match in _CUSTOM_ENV_DEF_RE.finditer(tex_source):
+        names.add(match.group(1) or match.group(2))
+    return names
+
+
+def protect_declared_environments(tex_source, store):
+    """Replace complete instances of source-defined environments by tokens.
+
+    Matching tracks nesting of the same environment, so a nested ``foo``
+    inside ``foo`` is kept intact. Other nested environments are naturally
+    included in the preserved source span.
+    """
+    for name in declared_environment_names(tex_source):
+        escaped = re.escape(name)
+        env_re = re.compile(
+            r"\\begin\s*\{\s*" + escaped + r"\s*\}"
+            r"|\\end\s*\{\s*" + escaped + r"\s*\}"
+        )
+        matches = list(env_re.finditer(tex_source))
+        spans = []
+        depth = 0
+        start = None
+        for match in matches:
+            is_begin = match.group(0).lstrip().startswith(r"\begin")
+            if is_begin:
+                if depth == 0:
+                    start = match.start()
+                depth += 1
+            elif depth:
+                depth -= 1
+                if depth == 0 and start is not None:
+                    spans.append((start, match.end()))
+                    start = None
+        if not spans:
+            continue
+        for start, end in reversed(spans):
+            original_span = tex_source[start:end]
+            idx = len(store)
+            token = _PLACEHOLDER_TMPL.format(idx)
+            tex_source = tex_source[:start] + "\n\n" + token + "\n\n" + tex_source[end:]
+            store[idx] = original_span
+    return tex_source
 
 
 # --------------------------------------------------------------------------
@@ -121,18 +193,16 @@ def run_pandoc(tex_text, cwd):
             encoding="utf-8", cwd=str(cwd), timeout=120,
         )
     except FileNotFoundError:
-        print("오류: pandoc 을 찾을 수 없습니다. PATH에 설치되어 있어야 합니다.",
-              file=sys.stderr)
-        sys.exit(1)
+        raise ConversionError(
+            "pandoc 을 찾을 수 없습니다. PATH에 설치되어 있어야 합니다."
+        )
     except subprocess.TimeoutExpired:
-        print("오류: pandoc 실행이 시간 초과되었습니다.", file=sys.stderr)
-        sys.exit(1)
+        raise ConversionError("pandoc 실행이 시간 초과되었습니다.")
     if proc.returncode != 0:
-        print(f"오류: pandoc이 실패했습니다(종료 코드 {proc.returncode}).",
-              file=sys.stderr)
+        detail = f"pandoc이 실패했습니다(종료 코드 {proc.returncode})."
         if proc.stderr:
-            print(proc.stderr, file=sys.stderr)
-        sys.exit(1)
+            detail += "\n" + proc.stderr.rstrip()
+        raise ConversionError(detail)
     if proc.stderr:
         # pandoc이 자잘한 경고를 stderr로 내는 경우가 있다(예: 알 수 없는
         # 패키지 옵션). 변환 자체는 계속되므로 그대로 넘겨서 보여주기만 한다.
@@ -145,6 +215,15 @@ def run_pandoc(tex_text, cwd):
 # --------------------------------------------------------------------------
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+_DOCUMENTCLASS_RE = re.compile(
+    r"^[ \t]*\\documentclass(?:\[([^\]]*)\])?\s*\{([^{}]+)\}",
+    re.MULTILINE,
+)
+_BEGIN_DOCUMENT_RE = re.compile(r"^[ \t]*\\begin\s*\{document\}", re.MULTILINE)
+_MAKETITLE_RAW_RE = re.compile(
+    r"^```(?:raw|tex|latex|\{=latex\})\s*\n\\maketitle\s*\n```[ \t]*\n?",
+    re.MULTILINE,
+)
 
 
 def split_pandoc_output(text):
@@ -155,14 +234,34 @@ def split_pandoc_output(text):
     return m.group(1), text[m.end():]
 
 
-def build_front_matter(pandoc_fm_text):
+def _yaml_quote(value):
+    """Quote one-line YAML strings without interpreting TeX backslashes."""
+    value = " ".join(value.splitlines()).strip()
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _source_class_and_preamble(tex_source):
+    class_match = _DOCUMENTCLASS_RE.search(tex_source)
+    if not class_match:
+        return "article", None, ""
+    class_options, class_name = class_match.groups()
+    body_start = class_match.end()
+    document_start = _BEGIN_DOCUMENT_RE.search(tex_source, body_start)
+    if document_start:
+        preamble = tex_source[body_start:document_start.start()].strip("\n")
+    else:
+        preamble = ""
+    return class_name.strip(), (class_options or "").strip(), preamble
+
+
+def build_front_matter(pandoc_fm_text, tex_source, maketitle=False):
     """pandoc의 title/author/date 를 뽑아 ndhmd4tex front matter로 다시 짠다.
 
     pandoc의 YAML을 그대로 복사하지 않는 이유: pandoc 메타데이터에는
     ndhmd4tex.py가 모르는 키가 섞여 나올 수 있고(예: lang, header-includes),
     author 가 리스트 형태(`- 홍길동`)로 나오는 등 표현이 달라 그대로 복사하면
-    오히려 헷갈린다. 여기서는 필요한 세 값만 뽑아 이 도구의 관례대로 다시
-    쓴다.
+    오히려 헷갈린다. 메타데이터는 이 도구의 관례대로 다시 쓰고, 클래스와
+    프리앰블은 원본 LaTeX에서 직접 보존한다.
     """
     title = author = date = None
     if pandoc_fm_text:
@@ -191,17 +290,24 @@ def build_front_matter(pandoc_fm_text):
                     author = m.group(1).strip().strip('"').strip("'")
             i += 1
 
+    class_name, class_options, preamble = _source_class_and_preamble(tex_source)
     lines = ["---"]
     if title:
-        lines.append(f"title: {title}")
-    else:
-        lines.append("title: 제목 없음  # TODO")
+        lines.append(f"title: {_yaml_quote(title)}")
     if author:
-        lines.append(f"author: {author}")
+        lines.append(f"author: {_yaml_quote(author)}")
     if date:
-        lines.append(f"date: {date}")
-    lines.append("class: article  # TODO: 원본 \\documentclass 확인 후 조정")
-    lines.append("toplevel: section  # article 계열이면 필요. book/report면 지울 것")
+        lines.append(f"date: {_yaml_quote(date)}")
+    lines.append(f"class: {class_name}")
+    if class_options:
+        lines.append(f"classoptions: {class_options}")
+    if class_name == "article":
+        lines.append("toplevel: section")
+    if preamble:
+        lines.append("preamble: |-")
+        lines.extend("  " + line if line else "" for line in preamble.splitlines())
+    if maketitle:
+        lines.append("maketitle: true")
     lines.append("# setup: ndhmd-default.nmd   # 공용 헤더를 쓴다면 주석 해제")
     lines.append("---")
     return "\n".join(lines) + "\n"
@@ -830,10 +936,23 @@ def convert_body(markdown_body, math_store):
 
 def convert(tex_text, cwd):
     tex_with_placeholders, math_store = extract_math_envs(tex_text)
-    pandoc_out = run_pandoc(tex_with_placeholders, cwd)
+    try:
+        pandoc_out = run_pandoc(tex_with_placeholders, cwd)
+    except ConversionError as first_error:
+        protected = protect_declared_environments(tex_with_placeholders, math_store)
+        if protected == tex_with_placeholders:
+            raise
+        try:
+            pandoc_out = run_pandoc(protected, cwd)
+        except ConversionError as retry_error:
+            raise ConversionError(
+                f"Pandoc 변환에 실패했습니다. 원본 오류:\n{first_error}\n"
+                f"사용자 정의 환경을 보존한 뒤에도 실패했습니다:\n{retry_error}"
+            ) from retry_error
     fm_text, body = split_pandoc_output(pandoc_out)
-    front_matter = build_front_matter(fm_text)
     body = convert_body(body, math_store)
+    body, had_maketitle = _MAKETITLE_RAW_RE.subn("", body)
+    front_matter = build_front_matter(fm_text, tex_text, bool(had_maketitle))
     body = body.strip("\n") + "\n"
     return front_matter + "\n" + body
 
@@ -860,14 +979,19 @@ def main():
         sys.exit(1)
 
     tex_text = src.read_text(encoding="utf-8", errors="replace")
-    result = convert(tex_text, cwd=src.parent)
+    try:
+        result = convert(tex_text, cwd=src.parent)
+    except ConversionError as e:
+        print(f"오류: {e}", file=sys.stderr)
+        sys.exit(1)
 
     if args.output:
         Path(args.output).write_text(result, encoding="utf-8")
         print(f"변환 완료: {args.output}", file=sys.stderr)
         print(
             "  기계 변환 초안입니다. 다음을 사람이 확인하십시오:\n"
-            "  - front matter의 class/toplevel\n"
+            "  - front matter의 class, classoptions, preamble\n"
+            "  - 원문 LaTeX로 보존된 사용자 정의 환경과 매크로 의존성\n"
             "  - 표 헤더가 제대로 승격됐는지\n"
             "  - `\\textsuperscript`/`\\textsubscript` 로 바뀐 자리\n"
             "  - `python3 ndhmd4tex.py 출력.md --lint` 로 마크업 실수 점검",
