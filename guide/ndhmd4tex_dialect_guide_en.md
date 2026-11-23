@@ -4103,6 +4103,30 @@ Horizontal again. The values changed above are back to what they were.
 - External post-processing such as `vpunct.py` knows nothing of the scope; it
   runs over the whole `.tex`.
 
+### 19.3. `<!--ndhmd endinput-->` — stop converting here (0.26.6)
+
+Like TeX's `\endinput`, **everything after this line is discarded** and not
+converted. It marks "convert only up to here" while you edit a long text
+into markdown from the front. The rest can stay as it is until you remove it.
+
+```markdown
+… the part already polished …
+
+<!--ndhmd endinput-->
+
+… the rest not yet touched (not converted) …
+```
+
+- It must occupy a whole line (as for the directives in section 19.2).
+  Inside a code fence or a comment it is not a directive.
+- Even inside a `:::` environment, the environment left open is closed
+  automatically. A `mappingrule` scope left open warns at the end.
+- The **first** one in the document after `{{inclusions}}` are merged counts.
+  Even inside an included file it does not end only that file, unlike TeX: the
+  whole rest of the document is discarded.
+- The same for ndhmd2html. Line numbers for `--preview-at` and `--syncinfo`
+  stay exact.
+
 ---
 
 ## 20. File inclusion (`{{filename}}`)

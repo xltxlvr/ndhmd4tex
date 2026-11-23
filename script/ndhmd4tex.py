@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.5"
+__version__ = "0.26.6"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3055,6 +3055,18 @@ _SCOPE_FORBIDDEN_KEYS = {
 }
 
 
+_ENDINPUT_MARK = "\uE006"
+
+
+def scope_cut_endinput(text):
+    """`<!--ndhmd endinput-->` 가 있으면 그 줄부터 끝까지 버린다(0.26.6)."""
+    k = text.find(_ENDINPUT_MARK)
+    if k < 0:
+        return text
+    cut = text[:k].rstrip("\n")
+    return cut + "\n" if cut else ""
+
+
 def _scope_is_marker(line):
     return bool(_SCOPE_RE.fullmatch(line.strip()))
 
@@ -3076,6 +3088,8 @@ def _scope_replace(text):
             print("경고: <!--ndhmd ...--> 지시는 한 줄을 통째로 차지해야 합니다. "
                   "이 지시는 무시합니다.", file=sys.stderr)
             return ""
+        if word == "endinput":
+            return _ENDINPUT_MARK
         if word == "end":
             item = ("end", None)
         elif word == "mappingrule":
@@ -3092,7 +3106,7 @@ def _scope_replace(text):
             item = ("push", extra)
         else:
             print(f"경고: 알 수 없는 <!--ndhmd {word}--> 지시를 무시합니다. "
-                  f"mappingrule / end 만 있습니다.", file=sys.stderr)
+                  f"mappingrule / end / endinput 만 있습니다.", file=sys.stderr)
             return ""
         _SCOPE_STORE.append(item)
         return f"{_SCOPE_OPEN}{len(_SCOPE_STORE) - 1}{_SCOPE_CLOSE}"
@@ -3164,7 +3178,7 @@ def protect_block_level(text, cfg, pr: Protector, sync_events=None):
         # 자체에 \n? 이 있어 진짜로 줄이 사라지므로 0이 맞다 — 아래 참고).
         sync_events.setdefault("comment", []).extend(
             _line_events_for_full_line_matches(text, COMMENT_RE, 1))
-    text = COMMENT_RE.sub(_scope_replace(text), text)
+    text = scope_cut_endinput(COMMENT_RE.sub(_scope_replace(text), text))
     if cfg.get("linecomment"):
         if sync_events is not None:
             sync_events.setdefault("linecomment", []).extend(

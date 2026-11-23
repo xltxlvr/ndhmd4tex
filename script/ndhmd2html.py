@@ -178,9 +178,9 @@ except ImportError as _e:      # pragma: no cover
               f"  ({_e})", file=sys.stderr)
         sys.exit(1)
 
-__version__ = "0.6.3"
+__version__ = "0.6.4"
 
-_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only", "_scope_replace", "apply_scope_markers", "_scope_is_marker",
+_NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only", "_scope_replace", "scope_cut_endinput", "apply_scope_markers", "_scope_is_marker",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
 _missing = [n for n in _NEEDS if not hasattr(nd, n)]
 if _missing:      # pragma: no cover
@@ -969,7 +969,7 @@ def extract_fences(text, ctx, pr):
 def protect_blocks(text, ctx, pr):
     cfg = ctx.cfg
     text = extract_fences(text, ctx, pr)
-    text = nd.COMMENT_RE.sub(nd._scope_replace(text), text)
+    text = nd.scope_cut_endinput(nd.COMMENT_RE.sub(nd._scope_replace(text), text))
     if cfg.get("linecomment"):
         text = nd.LINECOMMENT_RE.sub("", text)
     text, _ = nd._protect_regex_outside_code(

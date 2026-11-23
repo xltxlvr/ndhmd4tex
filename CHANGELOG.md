@@ -1,5 +1,9 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.26.6 / ndhmd2html 0.6.4
+
+- `<!--ndhmd endinput-->` 추가: 이 줄 이후를 모두 버리고 변환하지 않는다(TeX 의 `\endinput` 처럼). 코드 펜스 안은 지시가 아니며, 열린 `:::` 환경은 자동으로 닫힌다. 포함 파일 안에 있어도 문서 나머지가 모두 버려진다. 가이드 19.3 절.
+
 ## ndhmd4tex 0.26.5
 
 - `--preview-at`: `\newhangulfontfamily`·`\newhanjafontfamily`(및 `…fontface`)도 글꼴 정의 명령으로 취급해 `\def\이름{}` 로 대신한다.
