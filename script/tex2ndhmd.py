@@ -175,7 +175,9 @@ def protect_declared_environments(tex_source, store):
 # fenced div(`::: {#id .figure} ... ::: caption ... ::: :::`)로 내는데,
 # 이건 최소한 markdown 문법이라 후처리로 재조립할 수 있다
 # (convert_figure_divs 참고).
-_PANDOC_WRITER = "markdown-grid_tables-simple_tables-raw_html+pipe_tables"
+_PANDOC_WRITER = (
+    "markdown-grid_tables-simple_tables-raw_html+pipe_tables+fenced_code_blocks"
+)
 
 
 def run_pandoc(tex_text, cwd):
@@ -653,9 +655,10 @@ def unescape_pandoc_markdown(text):
 
 # ── 4.6. 들여쓴 코드블록 -> 펜스드 코드블록 ────────────────────────────
 #
-# `\begin{verbatim}` 등은 pandoc이 4칸 들여쓰기 코드블록으로 내놓는데,
-# ndhmd4tex.py 는 펜스(```)만 코드블록으로 인식한다(10장). 빈 줄로 둘러싸인,
-# 모든 줄이 4칸 이상 들여써진 블록을 찾아 펜스로 감싼다.
+# Pandoc writer에는 fenced_code_blocks 확장을 켜서 우선 백틱 펜스를
+# 출력하게 한다. 일부 컨텍스트나 Pandoc 버전이 여전히 들여쓰기 코드블록을
+# 내보내면 이 후처리가 이를 펜스로 바꾼다. ndhmd4tex.py는 들여쓰기 코드블록을
+# 인식하지 않는다(10장).
 
 
 def convert_indented_code_blocks(text):
@@ -679,9 +682,16 @@ def convert_indented_code_blocks(text):
                 i += 1
             while block and block[-1] == "":
                 block.pop()
-            out.append("```")
+            longest_ticks = max(
+                (len(run.group(0))
+                 for code_line in block
+                 for run in re.finditer(r"`+", code_line)),
+                default=0,
+            )
+            fence = "`" * max(3, longest_ticks + 1)
+            out.append(fence)
             out.extend(block)
-            out.append("```")
+            out.append(fence)
             continue
         out.append(ln)
         i += 1
