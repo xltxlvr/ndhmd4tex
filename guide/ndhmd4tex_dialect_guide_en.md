@@ -1663,6 +1663,11 @@ protected from later stages. An invalid value produces a warning and falls
 back to `tex`. It does not apply to `--pandoc` / `--mmd` (pandoc's smart
 extension and mmd's `--smart` handle that).
 
+- **Nested quotes (0.26.7)**: a quote right after an opening quote is itself an
+  opener (`"'x'"`; it used to be taken as a closer). In `tex` style, a small
+  closing quote touching a large one (`'` + `''`) would be paired backwards by
+  TeX (`''` + `'`), so a `\,` (thin space) is inserted between them. The same
+  for a small opening followed by a large opening.
 - **Converting only in Hangul/Hanja context (0.26.0)**: use `quotes: mixed`,
   or add `quotes_scope: cjk` (default `all`) to any value above. An opening
   quote is converted only when the next character (skipping `*` and `~`) is

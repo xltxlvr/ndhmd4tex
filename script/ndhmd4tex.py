@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.6"
+__version__ = "0.26.7"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3902,42 +3902,6 @@ _CJK_CHAR = re.compile(
     "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0002fa1f]")
 
 
-def _contextual_quotes(text, ch, op, cl, fb_op, fb_cl, protect, open_ctx):
-    """ch(`"` 또는 `'`) 하나의 종류를 짝 단위로 판정해 치환한다.
-
-    여는 자리(문두·open_ctx 뒤)의 따옴표 바로 다음 글자(굵게/기울임 기호 `*` `~`
-    는 건너뛴다)가 한글/한자이면 op/cl 로, 아니면 fb_op/fb_cl 로 바꾼다. 닫는
-    따옴표는 짝인 여는 따옴표의 판정을 따른다(스택). 짝 없는 닫는 따옴표와, `'`
-    의 경우 단어 안 아포스트로피(don't)는 건드리지 않고 fb_cl 로 둔다."""
-    out = []
-    stack = []
-    i, n = 0, len(text)
-    ctx = re.compile(open_ctx)
-    for i, c in enumerate(text):
-        if c != ch:
-            out.append(c)
-            continue
-        prev = text[i - 1] if i else ""
-        if i == 0 or ctx.fullmatch(prev):
-            j = i + 1
-            while j < n and text[j] in "*~":
-                j += 1
-            ok = bool(j < n and _CJK_CHAR.match(text[j]))
-            stack.append(ok)
-            out.append(protect(op) if ok else fb_op)
-            continue
-        if ch == "'" and prev and prev not in " \t" and i + 1 < n \
-                and text[i + 1].isascii() and text[i + 1].isalnum() and not stack:
-            out.append(fb_cl)              # don't, rock'n'roll
-            continue
-        if stack:
-            ok = stack.pop()
-            out.append(protect(cl) if ok else fb_cl)
-        else:
-            out.append(fb_cl)
-    return "".join(out)
-
-
 def convert_smart_quotes(text: str, quotes=None, protect=None,
                          cjk_only=False, fallback=None) -> str:
     r"""LaTeX은 여는/닫는 따옴표에 서로 다른 문자를 쓴다.
@@ -3973,36 +3937,74 @@ def convert_smart_quotes(text: str, quotes=None, protect=None,
     _OPEN_CTX = ("[\\s([{*~\uff08\uff3b\uff5b\u3008\u300a\u300c\u300e\u3010"
                  "\u3014\u3016\u3018\u301a\uff62]")
 
-    if quotes is not None:
-        # tex 가 아닌 모드. 결과 문자는 protect() 로 보호해서 뒤 단계(굵게·기울임
-        # 규칙, 최종 escape_text)가 건드리지 못하게 한다. 여는/닫는 판정은 같다.
+    return _scan_quotes(text, quotes, protect, cjk_only, fallback, _OPEN_CTX)
+
+
+def _scan_quotes(text, quotes, protect, cjk_only, fallback, open_ctx):
+    """따옴표(`"` `'`)를 왼쪽에서 오른쪽으로 한 번 훑어 여닫이를 판정하고 치환한다.
+
+    여는 자리: 문두, `open_ctx` 문자 뒤, 그리고 **바로 앞 글자가 여는 따옴표**일 때
+    (`"'가'"` 처럼 겹쳐 열릴 때 안쪽 작은따옴표도 여는 것이다). 나머지는 닫는다.
+    tex 따옴표끼리 붙어서 TeX 가 엉뚱하게 묶는 조합(작은 여는 + 큰 여는: `` ` ``+`` `` ``,
+    작은 닫는 + 큰 닫는: `'`+`''`)에는 `\\,` 를 끼워 넣는다(0.26.7)."""
+    ctx = re.compile(open_ctx)
+    tex_mode = quotes is None
+    if tex_mode:
+        dop, dcl, sop, scl = "``", "''", "`", "'"
+    else:
         dop, dcl, sop, scl = quotes
-        if cjk_only:
-            # 한글/한자 맥락만 변환. 나머지는 fallback(기본 tex 따옴표)로 둔다.
-            fdop, fdcl, fsop, fscl = fallback or ("``", "''", "`", "'")
-            text = _contextual_quotes(text, '"', dop, dcl, fdop, fdcl, protect, _OPEN_CTX)
-            text = _contextual_quotes(text, "'", sop or "`", scl or "'",
-                                      fsop, fscl, protect, _OPEN_CTX) \
-                if sop is not None else re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", "`", text)
-            return text
-        text = re.sub(rf'(?:\A|(?<={_OPEN_CTX}))"', lambda m: protect(dop), text)
-        text = text.replace('"', protect(dcl))
-        if sop is None:
-            # 2글자만 받았다: 작은따옴표는 tex 방식 그대로.
-            text = re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", "`", text)
-        else:
-            text = re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", lambda m: protect(sop), text)
-            text = text.replace("'", protect(scl))
-        return text
+    small_tex = (sop is None)            # 2글자만 받음: 작은따옴표는 tex 방식 그대로
+    fdop, fdcl, fsop, fscl = fallback or ("``", "''", "`", "'")
 
-    # 큰따옴표: 여는 위치만 먼저 치환한다. 남는 것은 전부 닫는 따옴표다.
-    text = re.sub(rf'(?:\A|(?<={_OPEN_CTX}))"', "``", text)
-    text = text.replace('"', "''")
+    def tok(kind, ok=True):
+        # kind: DO DC SO SC → (문자열, 원시 tex 인가)
+        if tex_mode:
+            return {"DO": dop, "DC": dcl, "SO": sop, "SC": scl}[kind], True
+        if kind in ("SO", "SC") and small_tex:
+            return ("`" if kind == "SO" else "'"), True
+        if not ok:
+            t = {"DO": fdop, "DC": fdcl, "SO": fsop, "SC": fscl}[kind]
+            return t, set(t) <= set("`'")
+        return protect({"DO": dop, "DC": dcl, "SO": sop, "SC": scl}[kind]), False
 
-    # 작은따옴표: 여는 위치만 백틱으로 치환한다. 닫는 작은따옴표는 TeX에서도
-    # 아포스트로피(') 그대로 쓰므로 별도 치환이 필요 없다.
-    text = re.sub(rf"(?:\A|(?<={_OPEN_CTX}))'", "`", text)
-    return text
+    # 이어 붙으면 TeX 가 다르게 묶는 (앞, 뒤) 쌍
+    bad = {("SO", "DO"), ("SC", "DC")}
+    out = []
+    dstack, sstack = [], []
+    prev_char, prev_open = "", False
+    prev_kind = None                     # 바로 앞에 낸 것이 원시 tex 따옴표였으면 그 종류
+    n = len(text)
+    for i, c in enumerate(text):
+        if c not in "\"'":
+            out.append(c)
+            prev_char, prev_open, prev_kind = c, False, None
+            continue
+        is_open = (i == 0 or bool(ctx.fullmatch(prev_char))
+                   or (prev_char in "\"'" and prev_open))
+        d = (c == '"')
+        ok = True
+        if cjk_only and not (not d and small_tex):
+            if is_open:
+                j = i + 1
+                while j < n and text[j] in "*~\"'":
+                    j += 1
+                ok = bool(j < n and _CJK_CHAR.match(text[j]))
+                (dstack if d else sstack).append(ok)
+            elif d:
+                ok = dstack.pop() if dstack else False
+            else:
+                apos = bool(prev_char) and not prev_char.isspace() and i + 1 < n \
+                    and text[i + 1].isascii() and text[i + 1].isalnum() and not sstack
+                ok = False if apos else (sstack.pop() if sstack else False)
+        kind = ("D" if d else "S") + ("O" if is_open else "C")
+        s_, raw = tok(kind, ok)
+        if raw and prev_kind is not None and (prev_kind, kind) in bad:
+            out.append(protect("\\,") if protect else "")
+        out.append(s_)
+        prev_char, prev_open = c, is_open
+        prev_kind = kind if raw else None
+    return "".join(out)
+
 
 _ESCAPE_MAP = {
     # 참고: LaTeX의 표준 특수문자 10개는 # $ % & ~ _ ^ \ { } 이다.
