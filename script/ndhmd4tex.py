@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.7"
+__version__ = "0.26.8"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -4332,7 +4332,7 @@ def process_inline(text, cfg, pr: Protector):
     text = INLINE_LABEL_RE.sub(
         lambda m: local.protect(r"\label{%s}" % m.group(1)), text)
 
-    def _do_figure_core(caption_raw, path, attr_str, pre_attrs=None):
+    def _do_figure_core(caption_raw, path, attr_str, pre_attrs=None, original=""):
         attrs = pre_attrs if pre_attrs is not None else parse_figure_attrs(attr_str)
 
         # 내려받기·형식 변환·애니메이션. 실패하면 원문을 그대로 두고 알린다 —
@@ -4348,7 +4348,7 @@ def process_inline(text, cfg, pr: Protector):
             )
         except ImageError as e:
             print(f"오류: {e}", file=sys.stderr)
-            return local.protect(m.group(0))
+            return local.protect(original)
 
         # 대체텍스트가 빈 따옴표 한 쌍뿐이면 "캡션 없는 그림 플로트"로 읽는다.
         #   ![](x)      -> \includegraphics 만 (플로트 아님)
@@ -4522,7 +4522,7 @@ def process_inline(text, cfg, pr: Protector):
         return local.protect(img_cmd)
 
     def do_figure(m):
-        return _do_figure_core(m.group(1), m.group(2), m.group(3))
+        return _do_figure_core(m.group(1), m.group(2), m.group(3), original=m.group(0))
 
     def do_figure_ref(m):
         caption_raw, ref_label = m.group(1), m.group(2)
@@ -4567,7 +4567,7 @@ def process_inline(text, cfg, pr: Protector):
                 print(f"경고: 참조 [{ref_label}] 의 정의에 label={attrs['label']} 가 있는데 "
                       f"여러 번 쓰입니다. \\label 이 중복됩니다 — 사용처에 "
                       f"![..][{ref_label}]{{label=...}} 로 따로 주십시오.", file=sys.stderr)
-        return _do_figure_core(caption_raw, path, "", pre_attrs=attrs)
+        return _do_figure_core(caption_raw, path, "", pre_attrs=attrs, original=m.group(0))
 
     def _do_link_core(label, url):
         # url이 #으로 시작하면 외부 URL이 아니라 문서 안 라벨을 가리키는
