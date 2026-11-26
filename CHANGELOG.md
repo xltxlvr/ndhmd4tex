@@ -1,5 +1,17 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd4tex 0.28.0 / ndhmd2html 0.8.0
+
+- 정의형 각주 `[^id]:` 가 여러 문단과 환경을 담을 수 있다. 빈 줄 뒤에도 들여쓴 줄이 이어지면 같은 각주로 모은다(Pandoc 방식; 전에는 빈 줄에서 끊겨 나머지가 본문에 남았다). 빈 줄·목록·인용·`:::` 환경이 있으면 블록 각주로 보고 본문 렌더러로 처리해 `\footnote{문단\n\n문단 \begin{itemize}…}` 를 낸다. 한 문단짜리는 이전과 같다.
+- 허용 환경은 새 mapping 키 `footnote_envs`(기본 enumerate, itemize, description, quote, verse, minipage, tikzpicture). 렌더 결과의 `\begin{..}` 를 검사해 벗어나면(quotation·표·verbatim 등) 경고하고 한 줄 인라인으로 되돌린다. 가이드 16.3 절.
+- ndhmd2html: 블록 각주를 블록으로 렌더한다(허용 목록 검사 없음).
+
+## ndhmd4tex 0.27.0 / ndhmd2html 0.7.0
+
+- 기본 인라인 규칙에 `_산세_`(`\textsf{}`)와 `__산세 굵게__`(`\textsf{\textbf{}}`) 추가(`sans`, `sans_bold`). 여는 `_`는 바로 앞이 단어 글자(한글 포함)가 아닐 때, 닫는 `_`는 바로 뒤가 ASCII 영숫자·`_`가 아닐 때만 표지로 본다. `snake_case`·파일 이름·`한글_변수_이름`·코드·수식·`\ref{a_b}`·링크 주소·`{label=a_b}` 는 영향이 없음을 확인했다. Markdown 의 `_x_`(기울임)와 다르다. `~~`(취소선)·`*`·`**`·`***`·`^^` 는 그대로다.
+- `inline:` 을 mapping 에서 통째로 교체하던 사용자는 새 두 규칙이 빠지므로 필요하면 `sample_mapping.yaml` 의 목록을 참고해 더할 것.
+- ndhmd2html: `sans` → `<span class="sans">`, `sans_bold` → `<strong class="sans">`, `\textsf{}` → `<span class="sans">`, 스타일 `.sans { font-family: sans-serif }`.
+
 ## ndhmd4tex 0.26.8
 
 - 버그 수정: 내려받지 못한 URL 그림(`--fetch-images`)이 하나라도 있으면 `NameError: name 'm' is not defined` 로 변환이 죽고 tex 가 만들어지지 않던 것을 고쳤다(`_do_figure_core` 가 바깥 변수 `m` 을 쓰고 있었다). 이제 원문을 그대로 두고 오류 메시지만 낸 채 변환을 이어 간다. `![..](url)` 과 `![..][라벨]` 두 경로 모두. pyflakes 로 같은 종류의 미정의 이름이 더 없음을 확인했다.

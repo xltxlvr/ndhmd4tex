@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.26.8"
+__version__ = "0.28.0"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -241,11 +241,24 @@ DEFAULT_CONFIG = {
         5: "paragraph",
         6: "subparagraph",
     },
+    # 정의형 각주([^id]:) 안에 둘 수 있는 환경(0.28.0). 렌더한 결과의 \\begin{이름}
+    # 이 모두 이 목록에 있어야 블록 각주로 쓴다. 아니면 경고하고 한 줄 인라인으로 처리한다.
+    "footnote_envs": ["enumerate", "itemize", "description", "quote", "verse",
+                      "minipage", "tikzpicture"],
     "inline": [
         {"name": "bold_italic", "pattern": r"\*\*\*(.+?)\*\*\*", "template": r"\textbf{\emph{%s}}"},
         {"name": "bold", "pattern": r"\*\*(.+?)\*\*", "template": r"\textbf{%s}"},
         {"name": "italic", "pattern": r"\*(.+?)\*", "template": r"\emph{%s}"},
         {"name": "strike", "pattern": r"~~(.+?)~~", "template": r"\sout{%s}"},
+        # _산세_ -> \textsf{..}, __산세 굵게__ -> \textsf{\textbf{..}} (0.27.0).
+        # 여는 _ 는 바로 앞이 단어 글자(한글 포함)가 아닐 때만, 닫는 _ 는 바로 뒤가
+        # ASCII 영숫자·_ 가 아닐 때만 표지로 본다. snake_case, 파일 이름,
+        # 한글_변수_이름 은 그대로 두고 `_산세_는` 처럼 한글 조사가 붙는 것은 된다.
+        # (코드·수식·\ref{a_b}·링크 주소는 이 단계 전에 보호되어 있다.)
+        {"name": "sans_bold", "pattern": r"(?<!\w)__(?=[^\s_])(.+?)(?<=[^\s_])__(?![A-Za-z0-9_])",
+         "template": r"\textsf{\textbf{%s}}"},
+        {"name": "sans", "pattern": r"(?<!\w)_(?=[^\s_])(.+?)(?<=[^\s_])_(?![A-Za-z0-9_])",
+         "template": r"\textsf{%s}"},
         # ^^방점^^ -> \dotemph{...} (전통 한국어 편집물의 방점 표시).
         # preamble에 \dotemph를 정의해둬야 한다(예: \newcommand{\dotemph}[1]{...}).
         {"name": "emphdot", "pattern": r"\^\^(.+?)\^\^", "template": r"\dotemph{%s}"},
@@ -3221,6 +3234,22 @@ FOOTNOTE_DEF_RE = re.compile(r"^\[\^([A-Za-z0-9_\-가-힣]+)\]:\s?(.*)$")
 # 되어 조용히 이중으로 깨진다. 그래서 경고만이라도 띄운다.
 _FOOTNOTE_DEF_LOOSE_RE = re.compile(r"^\[\^([^\]\n]+)\]:\s")
 
+class BlockNote(str):
+    """여러 문단·환경을 담은 각주 본문(원문 줄을 \\n 으로 이은 것). 한 줄짜리 인라인
+    각주는 그냥 str 이다."""
+
+
+_NOTE_BLOCK_START_RE = re.compile(r"^\s*(?::::|[-*+]\s|\d+[.)]\s|>|\{.+\}\s*::)")
+
+
+def _note_is_block(parts):
+    """빈 줄로 나뉜 문단이 있거나, 환경·목록·인용으로 시작하는 줄이 있으면 블록 각주."""
+    if any(p.strip() == "" for p in parts[1:]):
+        return True
+    return any(_NOTE_BLOCK_START_RE.match(p) for p in parts[1:]) or \
+        bool(parts and parts[0] and _NOTE_BLOCK_START_RE.match(parts[0]) and len(parts) > 1)
+
+
 def extract_footnotes(text, sync_events=None):
     lines = text.split("\n")
     defs = {}
@@ -3233,10 +3262,31 @@ def extract_footnotes(text, sync_events=None):
             fid = m.group(1)
             parts = [m.group(2)]
             i += 1
-            while i < len(lines) and (lines[i].startswith("    ") or lines[i].startswith("\t")):
-                parts.append(lines[i].strip())
-                i += 1
-            defs[fid] = " ".join(p for p in parts if p != "").strip()
+            n = len(lines)
+
+            def _indented(ln):
+                return ln.startswith("    ") or ln.startswith("\t")
+
+            while i < n:
+                ln = lines[i]
+                if _indented(ln):
+                    parts.append(ln[4:] if ln.startswith("    ") else ln[1:])
+                    i += 1
+                    continue
+                if ln.strip() == "":
+                    # 빈 줄 뒤에도 들여쓴 줄이 이어지면 같은 각주의 다음 문단이다(0.28.0).
+                    j = i
+                    while j < n and lines[j].strip() == "":
+                        j += 1
+                    if j < n and _indented(lines[j]):
+                        parts.extend([""] * (j - i))
+                        i = j
+                        continue
+                break
+            if _note_is_block(parts):
+                defs[fid] = BlockNote("\n".join(parts).strip("\n"))
+            else:
+                defs[fid] = " ".join(p.strip() for p in parts if p.strip() != "").strip()
             if sync_events is not None:
                 sync_events.append((def_start, i, 0))
             continue
@@ -4119,6 +4169,25 @@ def _parse_note_tag(raw, cfg):
     return {"kind": kind or "default", "sym": sym, "symval": symval, "opt": opt}
 
 
+def render_note_blocks(text, cfg, pr, inline_proc):
+    """블록 각주(여러 문단·환경)를 LaTeX 로 렌더한다(0.28.0).
+
+    문단은 빈 줄로 이어 \\par 가 되고, 환경은 cfg["footnote_envs"] 에 있는 것만
+    허용한다. 렌더한 결과의 \\begin{..} 를 검사하므로 마크다운 목록·인용·`:::{..}`
+    어느 문법으로 썼든 같은 기준이다. 벗어나면 경고하고 한 줄 인라인으로 물러난다."""
+    out = render_blocks(text.split("\n"), cfg, pr).strip()
+    allowed = set(cfg.get("footnote_envs") or [])
+    used = set(re.findall(r"\\begin\{([A-Za-z@*]+)\}", pr.restore(out)))
+    bad = sorted(used - allowed)
+    if bad:
+        print("경고: 각주 본문에 허용되지 않은 환경 " + ", ".join(bad) + " 이(가) 있어 "
+              "한 줄 인라인 각주로 처리합니다. 허용: " + ", ".join(sorted(allowed))
+              + " (mapping 의 footnote_envs 로 바꿀 수 있음).", file=sys.stderr)
+        flat = " ".join(p.strip() for p in text.split("\n") if p.strip())
+        return inline_proc(flat)
+    return out
+
+
 def render_note(text_, tag_raw, cfg, pr, process):
     r"""각주 본문(text_)과 꼬리표 원문으로 LaTeX 각주 명령을 만든다.
 
@@ -4631,8 +4700,11 @@ def process_inline(text, cfg, pr: Protector):
         return _do_link_core(label, url)
 
     def _footnote(text_, tag=None):
-        out, leftover = render_note(text_, tag, cfg, pr,
-                                    lambda t: process_inline(t, cfg, pr))
+        inline_proc = lambda t: process_inline(t, cfg, pr)
+        proc = inline_proc
+        if isinstance(text_, BlockNote):
+            proc = lambda t: render_note_blocks(t, cfg, pr, inline_proc)
+        out, leftover = render_note(text_, tag, cfg, pr, proc)
         return local.protect(out) + leftover
 
     def do_footnote(m):

@@ -1,10 +1,7 @@
 # sans serif, underline (ulem)
 extra_inline:
-  - name: sanserif
-    pattern: '\*\*\*(.+?)\*\*\*'
-    template: '\textsf{%s}'
   - name: underline
-    pattern: '\_\_(.+?)\_\_'
+    pattern: '\=\=(.+?)\=\='
     template: '\uline{%s}'
 
 # \. and \~ (kswdash)

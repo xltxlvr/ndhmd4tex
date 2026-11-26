@@ -178,7 +178,7 @@ except ImportError as _e:      # pragma: no cover
               f"  ({_e})", file=sys.stderr)
         sys.exit(1)
 
-__version__ = "0.6.4"
+__version__ = "0.8.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only", "_scope_replace", "scope_cut_endinput", "apply_scope_markers", "_scope_is_marker",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -453,7 +453,7 @@ _MACROS = {
     "underline": _tag("u"), "uline": _tag("u"), "sout": _tag("del"), "st": _tag("del"),
     "textsuperscript": _tag("sup"), "textsubscript": _tag("sub"),
     "dotemph": _tag("em", "dotemph"),
-    "textsf": _pass, "textrm": _pass, "textnormal": _pass, "mbox": _pass, "hbox": _pass,
+    "textsf": _tag("span", "sans"), "textrm": _pass, "textnormal": _pass, "mbox": _pass, "hbox": _pass,
     "text": _pass, "textup": _pass, "textmd": _pass,
     "ldots": _text("…"), "dots": _text("…"), "textellipsis": _text("…"),
     "textemdash": _text("—"), "textendash": _text("–"),
@@ -693,7 +693,10 @@ def _note(text_, tag_raw, ctx):
             leftover = esc("{" + tag_raw + "}")
         spec = {"kind": "default", "sym": False, "symval": None, "opt": None}
     kind = spec["kind"]
-    body = ctx.full(ctx.inl(text_))
+    if isinstance(text_, nd.BlockNote):        # 여러 문단·환경을 담은 각주
+        body = ctx.full(ctx.pr.restore(blocks(text_.split("\n"), ctx)).strip())
+    else:
+        body = ctx.full(ctx.inl(text_))
     if kind in ("sidepar", "sidebar"):
         return '<span class="sidenote note-%s" role="note">%s</span>%s' % (kind, body, leftover)
     ctx.notes.append({"kind": kind, "body": body, "sym": spec["sym"],
@@ -738,6 +741,8 @@ _INLINE_HTML = {
     "bold_italic": "<strong><em>%s</em></strong>", "bold": "<strong>%s</strong>",
     "italic": "<em>%s</em>", "strike": "<del>%s</del>",
     "emphdot": '<em class="dotemph">%s</em>',
+    "sans": '<span class="sans">%s</span>',
+    "sans_bold": '<strong class="sans">%s</strong>',
 }
 
 
@@ -2201,6 +2206,7 @@ img.inline { height: 1em; vertical-align: -0.1em; }   /* {inline} 그림 */
 
 /* ── 코드 ─────────────────────────────────────────────── */
 code { font-family: monospace; font-size: 0.92em; }
+.sans { font-family: sans-serif; }   /* _산세_ */
 pre {
   padding: 0.7em 1em;
   border: 1px solid #ccc;

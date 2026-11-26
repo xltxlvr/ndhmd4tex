@@ -1529,8 +1529,19 @@ Second line
 | `**bold**` | `\textbf{...}` |
 | `*italic*` | `\emph{...}` |
 | `~~strikethrough~~` | `\sout{...}` |
+| `_sans serif_` | `\textsf{...}` (0.27.0) |
+| `__sans serif bold__` | `\textsf{\textbf{...}}` (0.27.0) |
 | `^^dot emphasis^^` | `\dotemph{...}` (traditional "emphasis dots" used in Korean typesetting; requires `\dotemph` to be defined in `preamble`) |
 | `` `inline code` `` | `\texttt{...}` (contents are auto-escaped) |
+
+`_` and `__` check their surroundings. An opening `_` counts only when the
+character before it is not a word character (Hangul included); a closing `_`
+only when the next character is not an ASCII letter, digit or `_`. So
+`snake_case_word`, `my_file.txt` and `한글_변수_이름` are left alone, while
+`_산세리프_는` (a Korean particle attached) works. A `_` inside code, math,
+`\ref{a_b}` or a link address is protected before this step. Write a literal
+`_` as `\_`. Note that in Markdown `_x_` is italic; here it is sans serif
+(italic is `*x*`).
 
 Text wrapped in `**`/`*`/`~~` only goes through `escape_text` and is *not*
 recursively reprocessed (so you can't nest links, footnotes, etc. inside
@@ -3503,6 +3514,48 @@ A variant reading.^[Witness 1 has 仁.]{A} And …[^k1]{B}
   `\makepagenote` and `\printpagenotes`. Put them in `preamble:`.
 - `\verb|…|` (and `\verb*|…|`) spans pass through untouched **everywhere in the
   text** (since 0.19.3); `\verbfootnote` (`{verb}`) is the main use.
+
+### 16.3. Footnotes with several paragraphs and environments (0.28.0)
+
+A definition-style footnote `[^id]:` takes the following lines indented by 4
+spaces (or a tab) as its body. Now **indented lines that follow a blank line
+belong to the same footnote** (as in Pandoc). It ends at a line that is not
+indented.
+
+```markdown
+Body[^long].
+
+[^long]: First paragraph.
+
+    Second paragraph with *emphasis*.
+
+    - item one
+    - item two
+
+    :::{verse}
+    line one
+    line two
+    :::
+```
+
+- If there is a blank line after the first line, or a line that starts a list,
+  quote or `:::` environment, it is a "block footnote" and goes through the
+  body renderer. Paragraphs are joined by `\par` (a blank line). A one-
+  paragraph footnote is a one-line inline footnote exactly as before.
+- Lists, quotes and environments need a **blank line before** them to be
+  recognised (as in the body).
+- The allowed environments are the mapping key `footnote_envs` (default
+  `enumerate`, `itemize`, `description`, `quote`, `verse`, `minipage`,
+  `tikzpicture`). The `\begin{..}` names in the rendered result are checked, so
+  a markdown list, a quote or `:::{..}` are judged alike. Anything else
+  (`quotation`, a table `tblr`, `verbatim`, ...) warns and falls back to a
+  one-line inline footnote. `quotation` is excluded because it splits into
+  paragraphs with blank lines (a one-paragraph `>` is a `quote`).
+- What may appear inside `\footnote` depends on the class and packages.
+  `minipage` needs its width argument defined in `environments`, and
+  `tikzpicture` should be a `lines: raw` environment (section 17).
+- ndhmd2html renders the footnote body as blocks and does no allow-list check
+  (`<blockquote>` and `<table>` are emitted as they are).
 
 ---
 

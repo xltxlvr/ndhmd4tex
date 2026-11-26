@@ -15,21 +15,9 @@ environments:
       ?[%(opt)s]
     end: '\end{tikzpicture}'
 
-# ***text*** => \textsf{text}
-# **text** => \textbf{text}
-# *text* => \emph{text}
 # {|color|text|} => \MiniPostIt[color]{text}
 # {||color|text||} => \MiniPostIt*[color]{text}
 extra_inline:
-  - name: sanserifpriority
-    pattern: '\*\*\*(.+?)\*\*\*'
-    template: '\textsf{%s}'
-  - name: boldpriority
-    pattern: '\*\*(.+?)\*\*'
-    template: '\textbf{%s}'
-  - name: emphpriority
-    pattern: '\*(.+?)\*'
-    template: '\emph{%s}'
   - name: minipostitshade
     pattern: '\{\|\|(.+?)\|\|(.+?)\}'
     template: '\MiniPostIt*[%s]{%s}'

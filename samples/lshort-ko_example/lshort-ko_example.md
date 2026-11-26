@@ -238,11 +238,10 @@ using \LaTeX.
 ```showexam 
 기본, *이탤릭 italic*, **두껍게 bold**, 
 ~~취소선 strike out~~,
-__밑줄 underline__, ^^방점강조 dotemph^^,
-***산세리프 서체 san serif family***
+==밑줄 underline==, ^^방점강조 dotemph^^,
+_산세리프 서체 san serif family_
 ```
 
-여기서 __밑줄 처리__와 ***산세리프 서체***는 `mapping` config 파일에 정의하여 사용자화한 것이다.
 밑줄 `\uline`과 취소선 `\sout`으로 구현하므로 *ulem* 패키지 또는 *luatexko*가 필요하다.
 
 ## 2.12.1 리스트 문단 
@@ -553,7 +552,7 @@ And this is display style:
 n \frac{1}{k^2}
 = \frac{\pi^2}{6}
 \end{equation}
-``` 
+```
 
 ```showexam 
 $x^{2} \geq 0\qquad
@@ -597,7 +596,7 @@ Let's see [#thm:mur].
 주의. 위의 예에서 label을 주고 옵션 인자를 주고 하는 것은 config 파일의 theorem 환경 설정을 따른다. 기본값으로 정해진 것은 단순히 
 ```verb 
 \begin{theorem}
-```  
+```
 
 만을 출력해주는 것이므로 주의하라.
 이 문서의 config 파일의 설정을 참고할 것.
