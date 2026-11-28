@@ -26,7 +26,7 @@ try:
 except ImportError:
     sys.exit("이 스크립트는 PyYAML이 필요합니다:  pip install pyyaml")
 
-__version__ = "0.28.0"
+__version__ = "0.28.1"
 
 # --------------------------------------------------------------------------
 # 0. 보호(placeholder) 메커니즘
@@ -3430,7 +3430,8 @@ def protect_inline_code(text, cfg, local):
         out.append(local.protect(r"\texttt{%s}" % escaped))
         i = close_end
     return "".join(out)
-INLINE_MATH_RE = re.compile(r"(\$[^$\n]+?\$|\\\([^)]*?\\\))")
+# 앞의 \\\$ 는 원문에 직접 쓴 이스케이프된 달러(리터럴 $)로, 수식 구분자로 세지 않고 그대로 통과시킨다.
+INLINE_MATH_RE = re.compile(r"(\\\$|\$(?:[^$\n\\]|\\.)+?\$|\\\([^)]*?\\\))")
 
 
 def build_macro_re(cfg):

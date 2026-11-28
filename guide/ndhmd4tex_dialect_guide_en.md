@@ -2870,6 +2870,17 @@ mdash: '\ndhmdash{}'                  # your own macro (needs a preamble definit
   plain `|` is left in its place.
 - A hand-written raw `tabular`/`tblr` etc. is already protected and passes
   through under the raw-environment rule from section 8.
+- **Raw tables in ndhmd2html.** HTML ends up in reflowable places such as EPUB,
+  so raw `tabular`/`tabularx`/`tabulary`/`tblr`/`longtblr` are turned into a real
+  `<table>`, not a picture. Read: column specs (`l c r p{} X[l,co=…]`, `|`,
+  `*{n}{…}`), `\hline`, booktabs rules, `\cline`, `\cmidrule`, `\multicolumn`,
+  `\multirow`, `\SetCell[r=,c=]`, `\rowcolor`, `\cellcolor`, and for tblr
+  `cells`/`cell{}{}`/`row{}`/`column{}`/`hline{}`/`vline{}`/`hlines`/`vlines`/
+  `rowhead`/`width` (`halign` `valign` `bg` `fg` `font` `wd` `dashed`) and the
+  `caption`/`label` of `longtblr`. Color names are looked up in the front matter
+  `preamble` (`\definecolor`/`\providecolor`). Unknown keys only produce a warning
+  and the content stays; only a table whose column spec cannot be read is omitted
+  as before (`--keep-raw` leaves it in a `<pre class="rawtex">`).
 
 ### 14.1. Grid tables — merged cells and multi-line cells
 

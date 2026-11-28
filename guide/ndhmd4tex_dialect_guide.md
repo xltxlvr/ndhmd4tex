@@ -2655,6 +2655,15 @@ mdash: '\ndhmdash{}'                  # 자체 매크로(preamble에 정의 필�
   같은 규칙이고, 구분자로 쓰이지 않은 채 그 자리에 `|`가 남는다.
 - 이미 직접 짠 raw `tabular`/`tblr` 등은 8장의 raw 환경 규칙으로 그대로
   보호되어 통과한다.
+- **ndhmd2html 에서의 raw 표.** HTML 은 EPUB 처럼 다시 흐르는 곳에 쓰이므로 raw
+  `tabular`/`tabularx`/`tabulary`/`tblr`/`longtblr` 를 그림이 아니라 진짜 `<table>` 로
+  옮긴다. 읽는 것: 열 정의(`l c r p{} X[l,co=…]`, `|`, `*{n}{…}`), `\hline`·booktabs
+  줄·`\cline`·`\cmidrule`, `\multicolumn`·`\multirow`·`\SetCell[r=,c=]`, `\rowcolor`·
+  `\cellcolor`, tblr 의 `cells`/`cell{}{}`/`row{}`/`column{}`/`hline{}`/`vline{}`/
+  `hlines`/`vlines`/`rowhead`/`width`(`halign` `valign` `bg` `fg` `font` `wd` `dashed`),
+  `longtblr` 의 `caption`/`label`. 색 이름은 front matter `preamble` 의
+  `\definecolor`/`\providecolor` 에서 찾는다. 모르는 키는 경고만 하고 내용은 남기며,
+  열 정의를 못 읽는 표만 예전처럼 생략한다(`--keep-raw` 면 `<pre class="rawtex">`).
 
 ### 14.1. grid 표 — 병합 셀과 여러 줄 셀
 

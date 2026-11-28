@@ -18,8 +18,9 @@ setup 체인, {{포함}}, 주석, 블록 분할, 표 해석, 각종 정규식)�
    figure, verse, hverse, thebibliography)만 옮기고, 나머지는
    `<div class="환경이름">` 으로 감싸 식별만 가능하게 한다. 속성은
    `data-키="값"` 으로 남긴다. 꾸미는 일은 CSS 의 몫이다.
-3. raw LaTeX(```tex 펜스, {{tex:파일}}, tabular/tblr 환경, `lines: raw` 환경)은
-   HTML 로 옮길 수 없으므로 생략하고 개수를 알린다. `--keep-raw` 를 주면
+3. tabular/tabularx/tabulary/tblr/longtblr 표는 `<table>` 로 옮긴다(해석할 수 없는
+   표만 아래처럼 생략). 그 밖의 raw LaTeX(```tex 펜스, {{tex:파일}}, `lines: raw`
+   환경)은 HTML 로 옮길 수 없으므로 생략하고 개수를 알린다. `--keep-raw` 를 주면
    `<pre class="rawtex">` 로 남긴다. 수식은 LaTeX 원문 그대로 내보내 MathJax 가
    읽게 한다.
 4. 출력은 언제나 XML 로도 올바른(well-formed) 마크업이다. 빈 요소는 `<br />`
@@ -178,7 +179,7 @@ except ImportError as _e:      # pragma: no cover
               f"  ({_e})", file=sys.stderr)
         sys.exit(1)
 
-__version__ = "0.8.0"
+__version__ = "0.9.0"
 
 _NEEDS = ("split_blocks", "resolve_includes", "parse_grid_table", "resolve_quotes", "quotes_cjk_only", "_scope_replace", "scope_cut_endinput", "apply_scope_markers", "_scope_is_marker",
           "_comment_spans", "_parse_note_tag", "JOIN_BR", "rtl_wrap", "rtl_only_script", "expand_external")
@@ -778,8 +779,10 @@ def _inline(text, ctx, local):
     text = re.sub(r"\^\^M", lambda m: P("\n"), text)
 
     def do_math(m):
-        ctx.math = True
         s = m.group(0)
+        if s == "\\$":          # 이스케이프된 달러: 리터럴 $
+            return P("$")
+        ctx.math = True
         inner = s[1:-1] if s.startswith("$") else s[2:-2]
         return P('<span class="math inline">\\(%s\\)</span>' % esc(inner))
     text = nd.INLINE_MATH_RE.sub(do_math, text)
@@ -910,8 +913,729 @@ _SILENT_RAW_RE = re.compile(
     r"(?:\[[^\]]*\])?(?:\{[^{}]*\})*")
 
 
+# --------------------------------------------------------------------------
+# 3-1. LaTeX 표(tabular, tabularx, tabulary, tblr, longtblr) -> <table>
+# --------------------------------------------------------------------------
+# EPUB 은 글자 크기에 따라 본문이 다시 흐르므로 표를 그림이 아니라 진짜 <table> 로
+# 내보내야 한다. 여기서 읽는 것은 실제 문서에 흔한 부분집합이다. 모르는 키는
+# 경고만 하고 내용은 버리지 않는다. 열 정의 자체를 못 읽으면 None 을 돌려주고,
+# 호출한 쪽(raw_tex)이 예전처럼 생략한다.
+
+_TBL_ENV_RE = re.compile(r"\A\s*\\begin\{(tabular|tabularx|tabulary|tblr|longtblr)\}(.*)\\end\{\1\}\s*\Z", re.S)
+_TBL_BASIC_COLORS = {
+    "black": "000000", "white": "ffffff", "red": "ff0000", "green": "00ff00", "blue": "0000ff",
+    "cyan": "00ffff", "magenta": "ff00ff", "yellow": "ffff00", "gray": "808080", "grey": "808080",
+    "orange": "ff8000", "purple": "bf0040", "brown": "bf8040", "lightgray": "bfbfbf",
+    "darkgray": "404040", "lime": "bfff00", "olive": "808000", "pink": "ffbfbf",
+    "teal": "008080", "violet": "800080",
+}
+_TBL_LEN_RE = re.compile(r"^-?\d*\.?\d+(mm|cm|pt|em|ex|in|px|bp)$")
+_TBL_RULE_CMDS = ("hline", "toprule", "midrule", "bottomrule", "cline", "cmidrule",
+                  "specialrule", "hdashline", "cdashline")
+
+
+class _TblFail(Exception):
+    pass
+
+
+def _tbl_group(s, i, o="{", c="}"):
+    """s[i] 가 여는 괄호일 때 짝이 맞는 닫는 괄호까지를 읽어 (속, 다음 위치) 를 돌려준다."""
+    if i >= len(s) or s[i] != o:
+        return None, i
+    depth, j = 0, i
+    while j < len(s):
+        ch = s[j]
+        if ch == "\\":
+            j += 2
+            continue
+        if ch == o:
+            depth += 1
+        elif ch == c:
+            depth -= 1
+            if depth == 0:
+                return s[i + 1:j], j + 1
+        j += 1
+    raise _TblFail("괄호가 닫히지 않음")
+
+
+def _tbl_split_top(s, sep=","):
+    out, depth, cur, i = [], 0, [], 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\" and i + 1 < len(s):
+            cur.append(s[i:i + 2])
+            i += 2
+            continue
+        if ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+        if ch == sep and depth == 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    out.append("".join(cur))
+    return [x for x in (t.strip() for t in out) if x]
+
+
+def _tbl_kv(s):
+    """'a=b, c={d,e}, flag' -> [(키, 값|None)] (순서 유지)."""
+    out = []
+    for item in _tbl_split_top(s):
+        depth, k = 0, -1
+        for i, ch in enumerate(item):
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            elif ch == "=" and depth == 0:
+                k = i
+                break
+        if k < 0:
+            out.append((item.strip(), None))
+        else:
+            v = item[k + 1:].strip()
+            if v.startswith("{") and _tbl_group(v, 0)[1] == len(v):
+                v = v[1:-1]
+            out.append((item[:k].strip(), v))
+    return out
+
+
+def _tbl_colors(ctx):
+    """frontmatter preamble 의 \\definecolor/\\providecolor/\\colorlet 에서 색을 읽는다."""
+    cache = getattr(ctx, "_tbl_colors", None)
+    if cache is not None:
+        return cache
+    cols = dict(_TBL_BASIC_COLORS)
+    src = "\n".join(str(v) for k, v in (ctx.meta or {}).items()
+                    if str(k).rstrip("+") in ("preamble", "beforestart") and v)
+    for m in re.finditer(r"\\(?:define|provide)color\{([^{}]+)\}\{([^{}]+)\}\{([^{}]+)\}", src):
+        name, model, val = m.group(1), m.group(2).strip(), m.group(3).strip()
+        try:
+            if model == "HTML":
+                cols[name] = val.lower()
+            elif model == "RGB":
+                cols[name] = "%02x%02x%02x" % tuple(int(float(x)) for x in val.split(","))
+            elif model == "rgb":
+                cols[name] = "%02x%02x%02x" % tuple(round(float(x) * 255) for x in val.split(","))
+            elif model == "gray":
+                g = round(float(val) * 255)
+                cols[name] = "%02x%02x%02x" % (g, g, g)
+        except (ValueError, TypeError):
+            pass
+    for m in re.finditer(r"\\colorlet\{([^{}]+)\}\{([^{}]+)\}", src):
+        base = m.group(2).split("!")[0]
+        if base in cols and "!" not in m.group(2):
+            cols[m.group(1)] = cols[base]
+    ctx._tbl_colors = cols
+    return cols
+
+
+def _tbl_css_color(name, ctx):
+    name = (name or "").strip()
+    if not name:
+        return None
+    cols = _tbl_colors(ctx)
+    parts = name.split("!")
+    base = cols.get(parts[0])
+    if base is None:
+        return None
+    if len(parts) >= 2:
+        try:
+            p = float(parts[1]) / 100.0
+        except ValueError:
+            return None
+        other = cols.get(parts[2], "ffffff") if len(parts) >= 3 else "ffffff"
+        a = [int(base[i:i + 2], 16) for i in (0, 2, 4)]
+        b = [int(other[i:i + 2], 16) for i in (0, 2, 4)]
+        base = "".join("%02x" % round(x * p + y * (1 - p)) for x, y in zip(a, b))
+    return "#" + base
+
+
+def _tbl_props(s, ctx, warn):
+    """셀/행/열 속성 문자열을 {halign, valign, bg, fg, bold, italic, size, c, r} 로."""
+    p = {}
+    for k, v in _tbl_kv(s or ""):
+        if v is None:
+            if k in ("l", "c", "r", "j"):
+                p["halign"] = k
+            elif k in ("t", "m", "b", "h", "f"):
+                p["valign"] = k
+            elif k in ("dashed", "dotted", "solid"):
+                p["lstyle"] = k
+            elif _TBL_LEN_RE.match(k):
+                p["wd"] = k
+            else:
+                warn(k)
+            continue
+        if k == "halign" or k == "valign":
+            p[k] = v[:1]
+        elif k in ("bg", "fg"):
+            p[k] = _tbl_css_color(v, ctx)
+        elif k == "font":
+            if r"\bfseries" in v or r"\bf" in v:
+                p["bold"] = True
+            if r"\itshape" in v or r"\it" in v:
+                p["italic"] = True
+            for cmd, sz in ((r"\footnotesize", ".85em"), (r"\scriptsize", ".75em"),
+                            (r"\small", ".9em"), (r"\large", "1.2em")):
+                if cmd in v:
+                    p["size"] = sz
+        elif k in ("c", "r"):
+            try:
+                p[k] = max(1, int(v))
+            except ValueError:
+                warn(k)
+        elif k == "wd" and _TBL_LEN_RE.match(v):
+            p["wd"] = v
+        elif k in ("co", "preto", "appto", "cmd", "mode", "halign*", "leftsep", "rightsep",
+                   "colsep", "rowsep", "abovesep", "belowsep", "ht", "wd", "fg", "bg", "cell"):
+            pass
+        else:
+            warn(k)
+    return p
+
+
+def _tbl_expand_stars(spec):
+    for _ in range(8):
+        m = re.search(r"\*\{(\d+)\}\{", spec)
+        if not m:
+            break
+        body, end = _tbl_group(spec, m.end() - 1)
+        spec = spec[:m.start()] + body * int(m.group(1)) + spec[end:]
+    return spec
+
+
+def _tbl_tokens(spec, ctx, warn):
+    """열(또는 행) 정의 -> ([{align, width, co, props, kind}], {경계 번호: 줄 속성})."""
+    spec = _tbl_expand_stars(spec)
+    toks, lines = [], {}
+    i, n = 0, len(spec)
+    pre_align = None
+    while i < n:
+        ch = spec[i]
+        if ch.isspace():
+            i += 1
+        elif ch == "|":
+            lines[len(toks) + 1] = {}
+            i += 1
+            if i < n and spec[i] == "[":
+                i = _tbl_group(spec, i, "[", "]")[1]
+        elif ch in "@!<":
+            _, i = _tbl_group(spec, i + 1)
+        elif ch == ">":
+            body, i = _tbl_group(spec, i + 1)
+            if r"\raggedleft" in body:
+                pre_align = "r"
+            elif r"\centering" in body:
+                pre_align = "c"
+            elif r"\raggedright" in body:
+                pre_align = "l"
+        elif ch in "lcrjXQSpmbsC":
+            kind = ch
+            i += 1
+            props, width = {}, None
+            if kind in "pmb" and i < n and spec[i] == "{":
+                width, i = _tbl_group(spec, i)
+            if i < n and spec[i] == "[":
+                inner, i = _tbl_group(spec, i, "[", "]")
+                props = _tbl_props(inner, ctx, warn)
+                co = None
+                for k, v in _tbl_kv(inner):
+                    if k == "co" and v:
+                        try:
+                            co = float(v)
+                        except ValueError:
+                            pass
+                    elif k == "wd" and v and _TBL_LEN_RE.match(v):
+                        width = v
+                if co is not None:
+                    props["co"] = co
+            t = {"kind": kind, "width": width, "props": props,
+                 "align": props.get("halign") or pre_align or
+                 {"l": "l", "c": "c", "r": "r", "j": "l", "S": "r", "s": "r"}.get(kind, "l")}
+            if kind == "X" and "co" not in props:
+                props["co"] = 1.0
+            toks.append(t)
+            pre_align = None
+        elif ch in "()":
+            i += 1
+        else:
+            raise _TblFail("열 정의 %r 을 읽지 못함" % ch)
+    return toks, lines
+
+
+def _tbl_ranges(sel, total):
+    """'1,3-5,odd,2-' -> 1부터 센 번호 집합."""
+    out = set()
+    for item in re.split(r"\s*,\s*", (sel or "").strip()):
+        if not item:
+            continue
+        if item == "odd":
+            out |= set(range(1, total + 1, 2))
+        elif item == "even":
+            out |= set(range(2, total + 1, 2))
+        elif item == "-":
+            out |= set(range(1, total + 1))
+        else:
+            m = re.fullmatch(r"(\d*)\s*-\s*(\d*)", item)
+            if m:
+                a = int(m.group(1)) if m.group(1) else 1
+                z = int(m.group(2)) if m.group(2) else total
+                out |= set(range(a, z + 1))
+            elif item.isdigit():
+                out.add(int(item))
+            elif item == "Z":
+                out.add(total)
+    return out
+
+
+def _tbl_strip_comments(s):
+    return re.sub(r"(?m)(?<!\\)%.*$", "", s)
+
+
+def _tbl_split_rows(body):
+    """최상위 \\\\ (와 \\tabularnewline) 로 행을 나눈다."""
+    rows, cur, depth, i = [], [], 0, 0
+    while i < len(body):
+        ch = body[i]
+        if body.startswith("\\\\", i) or body.startswith("\\tabularnewline", i):
+            if depth == 0:
+                i += 2 if body.startswith("\\\\", i) else len("\\tabularnewline")
+                if i < len(body) and body[i] == "*":
+                    i += 1
+                while i < len(body) and body[i] in " \t":
+                    i += 1
+                if i < len(body) and body[i] == "[":
+                    _, i = _tbl_group(body, i, "[", "]")
+                rows.append("".join(cur))
+                cur = []
+                continue
+            cur.append(body[i:i + 2])
+            i += 2
+            continue
+        if ch == "\\" and i + 1 < len(body):
+            cur.append(body[i:i + 2])
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        cur.append(ch)
+        i += 1
+    rows.append("".join(cur))
+    return rows
+
+
+def _tbl_split_cells(row):
+    cells, cur, depth, i = [], [], 0, 0
+    while i < len(row):
+        ch = row[i]
+        if ch == "\\" and i + 1 < len(row):
+            cur.append(row[i:i + 2])
+            i += 2
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        if ch == "&" and depth == 0:
+            cells.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+        i += 1
+    cells.append("".join(cur))
+    return cells
+
+
+def _tbl_leading_rules(text):
+    """행 앞의 \\hline 류를 떼어 ([(종류, 열범위 or None)], 나머지) 로."""
+    rules = []
+    while True:
+        m = re.match(r"\s*\\(" + "|".join(_TBL_RULE_CMDS) + r")\*?\b", text)
+        if not m:
+            break
+        name, i = m.group(1), m.end()
+        rng = None
+        while i < len(text) and text[i] in " \t":
+            i += 1
+        if i < len(text) and text[i] == "(":
+            i = text.index(")", i) + 1
+        if name in ("cline", "cmidrule", "cdashline"):
+            g, i2 = _tbl_group(text, i)
+            if g is not None:
+                mm = re.fullmatch(r"\s*(\d+)\s*-\s*(\d+)\s*", g)
+                if mm:
+                    rng = (int(mm.group(1)), int(mm.group(2)))
+                i = i2
+        elif name == "specialrule":
+            for _ in range(3):
+                g, i = _tbl_group(text, i)
+        rules.append((name, rng))
+        text = text[i:]
+    return rules, text
+
+
+def _tbl_cell_cmds(text):
+    """셀 앞머리의 \\SetCell, \\cellcolor, \\multicolumn, \\multirow 를 읽는다."""
+    info = {"c": 1, "r": 1, "props": "", "consume": 0, "bg": None, "align": None}
+    t = text.strip()
+    for _ in range(6):
+        m = re.match(r"\\SetCell\*?", t)
+        if m:
+            i = m.end()
+            while i < len(t) and t[i] in " \t":
+                i += 1
+            opt = ""
+            if i < len(t) and t[i] == "[":
+                opt, i = _tbl_group(t, i, "[", "]")
+            while i < len(t) and t[i] in " \t":
+                i += 1
+            pr = ""
+            if i < len(t) and t[i] == "{":
+                pr, i = _tbl_group(t, i)
+            kv = dict(_tbl_kv(opt))
+            for key in ("c", "r"):
+                if key in kv and kv[key] and kv[key].isdigit():
+                    info[key] = int(kv[key])
+            info["props"] += "," + pr
+            info["consume"] = info["c"] - 1
+            t = t[i:].strip()
+            continue
+        m = re.match(r"\\cellcolor(?:\[[^\]]*\])?\{([^{}]*)\}", t)
+        if m:
+            info["bg"] = m.group(1)
+            t = t[m.end():].strip()
+            continue
+        m = re.match(r"\\multicolumn\{(\d+)\}\{", t)
+        if m:
+            spec, i = _tbl_group(t, m.end() - 1)
+            txt, i = _tbl_group(t, i)
+            if txt is None:
+                raise _TblFail("multicolumn")
+            info["c"] = int(m.group(1))
+            al = re.sub(r"[^lcr]", "", re.sub(r"[>@!<]\{[^{}]*\}|p\{[^{}]*\}", "", spec))[:1]
+            info["align"] = al or None
+            t = txt.strip()
+            continue
+        m = re.match(r"\\multirow(?:\[[^\]]*\])?\{(\d+)\}", t)
+        if m:
+            i = m.end()
+            if i < len(t) and t[i] == "[":
+                i = _tbl_group(t, i, "[", "]")[1]
+            _, i = _tbl_group(t, i)
+            txt, i = _tbl_group(t, i)
+            if txt is None:
+                raise _TblFail("multirow")
+            info["r"] = int(m.group(1))
+            t = txt.strip()
+            continue
+        break
+    return info, t
+
+
+def _tbl_line_css(spec):
+    w = spec.get("wd") or "1px"
+    st = spec.get("lstyle") or "solid"
+    col = spec.get("fg") or "currentColor"
+    return "%s %s %s" % (w, st, col)
+
+
+def latex_table(src, ctx):
+    """LaTeX 표 환경 하나를 <table> 로 옮긴다. 못 읽으면 None."""
+    m = _TBL_ENV_RE.match(src)
+    if not m:
+        return None
+    env, rest = m.group(1), _tbl_strip_comments(m.group(2))
+    warned = set()
+
+    def warn(k):
+        if k not in warned:
+            warned.add(k)
+            print("알림: LaTeX 표의 '%s' 은(는) 해석하지 않고 무시했습니다." % k, file=sys.stderr)
+
+    try:
+        opts_s, outer, i = "", {}, 0
+        tattrs, col_spec = {}, ""
+        if env in ("tblr", "longtblr"):
+            if rest.startswith("["):
+                opts_s, i = _tbl_group(rest, 0, "[", "]")
+            spec_s, i = _tbl_group(rest, i)
+            if spec_s is None:
+                return None
+            body = rest[i:]
+            for k, v in _tbl_kv(opts_s):
+                if k == "caption" and v:
+                    tattrs["caption"] = re.sub(r"^\s*\[[^\]]*\]", "", v).strip()
+                elif k == "label" and v:
+                    tattrs["label"] = v
+                elif k in ("note", "remark", "entry", "expand", "presep", "postsep"):
+                    warn(k)
+            outer_items = _tbl_kv(spec_s)
+        else:
+            if rest.startswith("["):
+                _, i = _tbl_group(rest, 0, "[", "]")
+            if env in ("tabularx", "tabulary"):
+                outer["width"], i = _tbl_group(rest, i)
+            col_spec, i = _tbl_group(rest, i)
+            if col_spec is None:
+                return None
+            body = rest[i:]
+            outer_items = [("colspec", col_spec)]
+
+        # ---- 바깥 키 ------------------------------------------------------
+        colspec = rowspec = ""
+        cells_all, row_rules, col_rules, cell_rules = "", [], [], []
+        hl_rules, vl_rules = [], []
+        rowhead = 0
+        hlines_all = vlines_all = None
+        for k, v in outer_items:
+            kk = re.match(r"([A-Za-z]+)(.*)", k)
+            name, sel = (kk.group(1), kk.group(2)) if kk else (k, "")
+            if name == "colspec":
+                colspec = v or ""
+            elif name == "rowspec":
+                rowspec = v or ""
+            elif name == "width":
+                outer["width"] = v
+            elif name == "cells":
+                cells_all = v or ""
+            elif name in ("cell", "row", "column"):
+                groups, j = [], 0
+                while j < len(sel) and sel[j] == "{":
+                    g, j = _tbl_group(sel, j)
+                    groups.append(g)
+                if name == "cell" and len(groups) == 2:
+                    cell_rules.append((groups[0], groups[1], v or ""))
+                elif name == "row" and len(groups) == 1:
+                    row_rules.append((groups[0], v or ""))
+                elif name == "column" and len(groups) == 1:
+                    col_rules.append((groups[0], v or ""))
+                else:
+                    warn(k)
+            elif name in ("hline", "vline"):
+                g, _ = _tbl_group(sel, 0)
+                if g is None:
+                    warn(k)
+                    continue
+                val, cols_sel, pr = (v or ""), None, ""
+                g1, j = _tbl_group(val, 0) if val.startswith("{") else (None, 0)
+                if g1 is not None:
+                    g2, _ = _tbl_group(val, j) if val[j:].startswith("{") else (None, 0)
+                    if g2 is not None:
+                        cols_sel, pr = g1, g2
+                    else:
+                        pr = g1
+                else:
+                    pr = val
+                (hl_rules if name == "hline" else vl_rules).append((g, cols_sel, pr))
+            elif name == "hlines":
+                hlines_all = v or ""
+            elif name == "vlines":
+                vlines_all = v or ""
+            elif name == "rowhead":
+                try:
+                    rowhead = int(v or 1)
+                except ValueError:
+                    rowhead = 1
+            elif name in ("colsep", "rowsep", "stretch", "rows", "columns", "leftsep", "rightsep",
+                          "abovesep", "belowsep", "rowfoot", "baseline", "vspan", "hspan",
+                          "measure", "verb", "rulesep", "row"):
+                pass
+            else:
+                warn(k)
+
+        ctoks, col_vlines = _tbl_tokens(colspec, ctx, warn) if colspec else ([], {})
+        rtoks, row_hlines = _tbl_tokens(rowspec, ctx, warn) if rowspec else ([], {})
+
+        # ---- 본문 -> 행/셀, 가로줄 ---------------------------------------
+        rows_txt = _tbl_split_rows(body)
+        rows, hb = [], {}          # hb[경계번호] = [(열범위|None, 속성)]
+        for ri, rt in enumerate(rows_txt):
+            rules, rest_t = _tbl_leading_rules(rt)
+            for name, rng in rules:
+                spec = {"wd": {"toprule": "1.5px", "bottomrule": "1.5px"}.get(name, "1px")}
+                if name in ("hdashline", "cdashline"):
+                    spec["lstyle"] = "dashed"
+                hb.setdefault(len(rows) + 1, []).append((rng, spec))
+            if not rest_t.strip() and ri == len(rows_txt) - 1:
+                continue
+            rb = None
+            mm = re.match(r"\s*\\rowcolor(?:\[[^\]]*\])?\{([^{}]*)\}", rest_t)
+            if mm:
+                rb = mm.group(1)
+                rest_t = rest_t[mm.end():]
+            rows.append((rb, _tbl_split_cells(rest_t)))
+        nrows = len(rows)
+        if nrows == 0:
+            return None
+
+        # ---- 격자 배치 ----------------------------------------------------
+        covered, placed = set(), []
+        ncols_seen = 0
+        for r, (rb, raw_cells) in enumerate(rows, 1):
+            col, k = 1, 0
+            while k < len(raw_cells):
+                if (r, col) in covered:
+                    col += 1
+                    k += 1
+                    continue
+                info, txt = _tbl_cell_cmds(raw_cells[k])
+                cs, rs = info["c"], info["r"]
+                for rr in range(r, r + rs):
+                    for cc in range(col, col + cs):
+                        if (rr, cc) != (r, col):
+                            covered.add((rr, cc))
+                placed.append({"r": r, "c": col, "cs": cs, "rs": rs, "txt": txt, "info": info,
+                               "rowbg": rb})
+                ncols_seen = max(ncols_seen, col + cs - 1)
+                col += cs
+                k += 1 + info["consume"]
+        ncols = max(ncols_seen, len(ctoks))
+
+        # ---- 속성(우선순위: cells < column < row < cell < SetCell) ---------
+        def wrap(p):
+            return p
+        cell_p = {}
+        for pc in placed:
+            cell_p[(pc["r"], pc["c"])] = {}
+
+        def apply(rs_set, cs_set, props):
+            for (rr, cc), d in cell_p.items():
+                if rr in rs_set and cc in cs_set:
+                    d.update(props)
+        allr, allc = set(range(1, nrows + 1)), set(range(1, ncols + 1))
+        if cells_all:
+            apply(allr, allc, _tbl_props(cells_all, ctx, warn))
+        for sel, v in col_rules:
+            apply(allr, _tbl_ranges(sel, ncols), _tbl_props(v, ctx, warn))
+        for sel, v in row_rules:
+            apply(_tbl_ranges(sel, nrows), allc, _tbl_props(v, ctx, warn))
+        for rsel, csel, v in cell_rules:
+            apply(_tbl_ranges(rsel, nrows), _tbl_ranges(csel, ncols), _tbl_props(v, ctx, warn))
+
+        # ---- 줄 -----------------------------------------------------------
+        def lp(s):
+            return _tbl_props(s, ctx, lambda k: None)
+        hbm = {}      # (경계, 열) -> 속성
+        vbm = {}      # (경계, 행) -> 속성
+
+        def put_h(b, cols, spec):
+            for c in cols:
+                hbm[(b, c)] = spec
+
+        def put_v(b, rws, spec):
+            for r in rws:
+                vbm[(b, r)] = spec
+        for b, lst in hb.items():
+            for rng, spec in lst:
+                cols = range(rng[0], rng[1] + 1) if rng else range(1, ncols + 1)
+                put_h(b, cols, spec)
+        for b in row_hlines:
+            put_h(b, range(1, ncols + 1), {})
+        for b in col_vlines:
+            put_v(b, range(1, nrows + 1), {})
+        if hlines_all is not None:
+            for b in range(1, nrows + 2):
+                put_h(b, range(1, ncols + 1), lp(hlines_all))
+        if vlines_all is not None:
+            for b in range(1, ncols + 2):
+                put_v(b, range(1, nrows + 1), lp(vlines_all))
+        for sel, csel, pr in hl_rules:
+            cols = _tbl_ranges(csel, ncols) if csel else range(1, ncols + 1)
+            for b in _tbl_ranges(sel, nrows + 1):
+                put_h(b, cols, lp(pr))
+        for sel, rsel, pr in vl_rules:
+            rws = _tbl_ranges(rsel, nrows) if rsel else range(1, nrows + 1)
+            for b in _tbl_ranges(sel, ncols + 1):
+                put_v(b, rws, lp(pr))
+
+        # ---- 출력 ---------------------------------------------------------
+        by_pos = {(pc["r"], pc["c"]): pc for pc in placed}
+        tstyle = ["border-collapse: collapse"]
+        w = outer.get("width")
+        if w and _TBL_LEN_RE.match(w.strip()):
+            tstyle.append("width: %s; max-width: 100%%" % w.strip())
+        out = [_table_open(tattrs, ctx).replace("<table", '<table style="%s"' % "; ".join(tstyle), 1)]
+        co_total = sum(t["props"].get("co", 0) for t in ctoks if t["kind"] in "XQ" and "co" in t["props"])
+        cg = []
+        for t in ctoks:
+            if t["kind"] in "XQ" and "co" in t["props"] and co_total and (
+                    any(x["props"].get("co") != 1.0 for x in ctoks if x["kind"] == "X")):
+                cg.append('<col style="width: %.1f%%;" />' % (t["props"]["co"] / co_total * 100))
+            elif t["width"] and _TBL_LEN_RE.match(t["width"].strip()):
+                cg.append('<col style="width: %s;" />' % t["width"].strip())
+            else:
+                cg.append("<col />")
+        if any("style" in x for x in cg):
+            out.append("<colgroup>" + "".join(cg) + "</colgroup>")
+        head_n = min(rowhead, nrows)
+        sections = []
+        if head_n:
+            sections.append(("thead", 1, head_n))
+        if head_n < nrows:
+            sections.append(("tbody", head_n + 1, nrows))
+        for sec, a, z in sections:
+            out.append("<%s>" % sec)
+            for r in range(a, z + 1):
+                tds = []
+                for c in range(1, ncols + 1):
+                    pc = by_pos.get((r, c))
+                    if pc is None:
+                        continue
+                    pr = dict(cell_p[(r, c)])
+                    pr.update(_tbl_props(pc["info"]["props"], ctx, warn))
+                    if pc["info"]["bg"]:
+                        pr["bg"] = _tbl_css_color(pc["info"]["bg"], ctx)
+                    if pc["rowbg"] and not pr.get("bg"):
+                        pr["bg"] = _tbl_css_color(pc["rowbg"], ctx)
+                    tk = ctoks[c - 1] if c - 1 < len(ctoks) else None
+                    al = pr.get("halign") or pc["info"]["align"] or (tk["align"] if tk else "l")
+                    st = []
+                    if al in ("c", "r"):
+                        st.append("text-align: %s" % {"c": "center", "r": "right"}[al])
+                    va = {"t": "top", "m": "middle", "b": "bottom"}.get(pr.get("valign"))
+                    if va:
+                        st.append("vertical-align: %s" % va)
+                    if pr.get("bg"):
+                        st.append("background-color: %s" % pr["bg"])
+                    if pr.get("fg"):
+                        st.append("color: %s" % pr["fg"])
+                    if pr.get("bold"):
+                        st.append("font-weight: bold")
+                    if pr.get("italic"):
+                        st.append("font-style: italic")
+                    if pr.get("size"):
+                        st.append("font-size: %s" % pr["size"])
+                    last_c, last_r = c + pc["cs"], r + pc["rs"]
+                    for side, spec in (("top", hbm.get((r, c))), ("bottom", hbm.get((last_r, c))),
+                                       ("left", vbm.get((c, r))), ("right", vbm.get((last_c, r)))):
+                        if spec is not None:
+                            st.append("border-%s: %s" % (side, _tbl_line_css(spec)))
+                    st.append("padding: 0.15em 0.4em")
+                    span = (' rowspan="%d"' % pc["rs"] if pc["rs"] > 1 else "") + \
+                           (' colspan="%d"' % pc["cs"] if pc["cs"] > 1 else "")
+                    html = flow(ctx.inl(pc["txt"].strip()), ctx)
+                    tag = "th" if sec == "thead" else "td"
+                    tds.append('<%s%s style="%s">%s</%s>' % (tag, span, "; ".join(st), html, tag))
+                out.append("<tr>" + "".join(tds) + "</tr>")
+            out.append("</%s>" % sec)
+        out.append("</table>")
+        return "\n".join(out)
+    except _TblFail as e:
+        print("알림: LaTeX 표를 해석하지 못해 생략합니다 (%s)." % e, file=sys.stderr)
+        return None
+
+
 def raw_tex(src, ctx):
     """raw LaTeX 블록. 목차·표제 명령만 알아듣고 나머지는 생략한다."""
+    tbl = latex_table(src, ctx)
+    if tbl is not None:
+        return blk(tbl)
     rest = src
     out = []
     if re.search(r"\\maketitle\b", rest):

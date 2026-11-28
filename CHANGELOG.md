@@ -1,5 +1,14 @@
 # ndhmd4tex 변경 이력
 
+## ndhmd2html 0.9.0
+
+- raw LaTeX 표(`tabular`, `tabularx`, `tabulary`, `tblr`, `longtblr`)를 생략하지 않고 `<table>` 로 옮긴다(EPUB 출판용). 열 정의, `\hline`·booktabs 줄, `\multicolumn`·`\multirow`·`\SetCell`, `\rowcolor`·`\cellcolor`, tblr 의 `cells`/`cell`/`row`/`column`/`hline`/`vline`/`hlines`/`vlines`/`rowhead`/`width`, `longtblr` 의 `caption`/`label` 을 읽고, 정렬·배경색·글자색·굵게·선 굵기와 점선·열 너비 비율(`co=`)을 인라인 스타일로 낸다. 색 이름은 front matter `preamble` 의 `\definecolor`/`\providecolor` 에서 찾는다. 모르는 키는 경고하고 내용은 남기며, 열 정의를 못 읽는 표만 이전처럼 생략한다. 가이드 14장.
+
+## ndhmd4tex 0.28.1 / ndhmd2html 0.8.1
+
+- 원문에 쓴 `\$`(이스케이프된 달러)가 망가지던 문제를 고쳤다. 한 문단에 `\$` 가 둘 이상이면 `$…$` 짝으로 읽혀 인라인 수식으로 보호되었고, 그 바람에 첫 `\` 는 `\textbackslash{}` 로 바뀌어 `\textbackslash{}$` 가 나왔다. 하나만 있을 때도 `\textbackslash{}\$` 가 되었다. 이제 `\$` 는 수식 구분자로 세지 않고 그대로 통과하며, 수식 안의 `\$` 도 허용한다(`$5 \$ 3$`). `\%` 등 다른 이스케이프는 원래 문제가 없었다. 가이드 문서 본문 변환 결과는 변함없음을 확인했다.
+- ndhmd2html: 같은 정규식을 공유하므로 같은 문제가 있었다(`\$` 둘이 `\(\)` 빈 수식이 됨). 이제 `\$` 는 리터럴 `$` 로 나오고 MathJax 로딩 플래그도 켜지 않는다.
+
 ## ndhmd4tex 0.28.0 / ndhmd2html 0.8.0
 
 - 정의형 각주 `[^id]:` 가 여러 문단과 환경을 담을 수 있다. 빈 줄 뒤에도 들여쓴 줄이 이어지면 같은 각주로 모은다(Pandoc 방식; 전에는 빈 줄에서 끊겨 나머지가 본문에 남았다). 빈 줄·목록·인용·`:::` 환경이 있으면 블록 각주로 보고 본문 렌더러로 처리해 `\footnote{문단\n\n문단 \begin{itemize}…}` 를 낸다. 한 문단짜리는 이전과 같다.
